@@ -1,4 +1,6 @@
 # !/usr/bin/env python3
+# flake8: noqa
+import pprint
 import sys
 import os
 import importlib
@@ -16,31 +18,15 @@ add_sta = importlib.import_module("py-json.LANforge.add_sta")
 
 logger = logging.getLogger(__name__)
 
-# Uncomment below to include autogen library.
-# if os.environ.get("LF_USE_AUTOGEN") == 1:
-#         lf_json_autogen = importlib.import_module("py-json.LANforge.lf_json_autogen")
-#         LFJsonPost = jf_json_autogen.LFJsonPost
-
-# use the station profile to set the combination of features you want on your stations
-# once this combination is configured, build the stations with the build(resource, radio, number) call
-# build() calls will fail if the station already exists. Please survey and clean your resource
-# before calling build()
-#         realm = importlib.import_module("py-json.realm")
-#         Realm = realm.Realm
-#         survey = Realm.findStations(resource=1)
-#         Realm.removeStations(survey)
-#         profile = Realm.newStationProfile()
-#         profile.set...
-#         profile.build(resource, radio, 64)
-
 
 class StationProfile:
     def __init__(self, lfclient_url, local_realm,
                  ssid="NA",
                  ssid_pass="NA",
+                 bssid='DEFAULT', # TODO: Fix root cause of 'null' when not set issue (REST server-side issue)
                  security="open",
                  number_template_="00000",
-                 mode=0,
+                 mode=0,  # shouldn't this be -1 or AUTO?
                  up=True,
                  resource=1,
                  shelf=1,
@@ -51,6 +37,7 @@ class StationProfile:
         self.debug = debug_
         self.lfclient_url = lfclient_url
         self.ssid = ssid
+        self.bssid = bssid
         self.ssid_pass = ssid_pass
         self.mode = mode
         self.up = up
@@ -77,8 +64,11 @@ class StationProfile:
             "mode": 0,
             "mac": "xx:xx:xx:xx:*:xx",
             "flags": 0,  # (0x400 + 0x20000 + 0x1000000000)  # create admin down
-            "flags_mask": 0
+            "flags_mask": 0,
+            "ap": bssid,
         }
+        if self.mode:
+            self.add_sta_data["mode"] = self.mode
         self.desired_set_port_cmd_flags = []
         self.desired_set_port_current_flags = ["if_down"]
         self.desired_set_port_interest_flags = ["current_flags", "ifdown"]
@@ -110,6 +100,22 @@ class StationProfile:
             "realm": None,
             "domain": None
         }
+        self.wifi_extra2_data_modified = False
+        self.wifi_extra2_data = {
+            "shelf": 1,
+            "resource": 1,
+            "port": None,
+            "req_flush": None,
+            "ignore_probe": None,
+            "ignore_auth": None,
+            "ignore_assoc": None,
+            "ignore_reassoc": None,
+            "post_ifup_script": None,
+            "ocsp": 0,
+            "venue_id": None,
+            "initial_band_pref": 0,
+            "bss_color": None
+        }
         self.wifi_txo_data_modified = False
         self.wifi_txo_data = {
             "shelf": 1,
@@ -138,6 +144,12 @@ class StationProfile:
             "seconds_till_reset": 0
         }
 
+        # these settings would be present when modifying a station
+        self.ip = None
+        self.netmask = None
+        self.gateway = None
+        self.mac = None
+
     def set_wifi_txo(self, txo_ena=1,
                      tx_power=255,
                      pream=0,
@@ -156,34 +168,34 @@ class StationProfile:
         self.wifi_txo_data["txo_retries"] = retries
         self.wifi_txo_data["txo_sgi"] = sgi
 
-    def set_wifi_extra(self, key_mgmt="WPA-EAP",
-                       pairwise="CCMP TKIP",
-                       group="CCMP TKIP",
+    def set_wifi_extra(self, key_mgmt="[BLANK]",
+                       pairwise="[BLANK]",
+                       group="[BLANK]",
                        psk="[BLANK]",
                        wep_key="[BLANK]",  # wep key
                        ca_cert="[BLANK]",
-                       eap="TTLS",
-                       identity="testuser",
+                       eap="[BLANK]",
+                       identity="[BLANK]",
                        anonymous_identity="[BLANK]",
-                       phase1="NA",  # outter auth
-                       phase2="NA",  # inner auth
-                       passwd="testpasswd",  # eap passphrase
-                       pin="NA",
-                       pac_file="NA",
-                       private_key="NA",
-                       pk_password="NA",  # priv key password
-                       hessid="00:00:00:00:00:01",
-                       realm="localhost.localdomain",
-                       client_cert="NA",
-                       imsi="NA",
-                       milenage="NA",
-                       domain="localhost.localdomain",
-                       roaming_consortium="NA",
-                       venue_group="NA",
-                       network_type="NA",
-                       ipaddr_type_avail="NA",
-                       network_auth_type="NA",
-                       anqp_3gpp_cell_net="NA"
+                       phase1="[BLANK]",  # outter auth
+                       phase2="[BLANK]",  # inner auth
+                       passwd="[BLANK]",  # eap passphrase
+                       pin="[BLANK]",
+                       pac_file="[BLANK]",
+                       private_key="[BLANK]",
+                       pk_password="[BLANK]",  # priv key password
+                       hessid="00:00:00:00:00:00",
+                       realm="[BLANK]",
+                       client_cert="[BLANK]",
+                       imsi="[BLANK]",
+                       milenage="[BLANK]",
+                       domain="[BLANK]",
+                       roaming_consortium="[BLANK]",
+                       venue_group="[BLANK]",
+                       network_type="[BLANK]",
+                       ipaddr_type_avail="[BLANK]",
+                       network_auth_type="[BLANK]",
+                       anqp_3gpp_cell_net="[BLANK]"
                        ):
         self.wifi_extra_data_modified = True
         self.wifi_extra_data["key_mgmt"] = key_mgmt
@@ -215,28 +227,86 @@ class StationProfile:
         self.wifi_extra_data["network_auth_type"] = network_auth_type
         self.wifi_extra_data["anqp_3gpp_cell_net"] = anqp_3gpp_cell_net
 
+    def set_wifi_extra2(self, req_flush="[BLANK]",
+                        ignore_probe="[BLANK]",
+                        ignore_auth="[BLANK]",
+                        ignore_assoc="[BLANK]",
+                        ignore_ressoc="[BLANK]",
+                        corrupt_gtk_rekey_mic="[BLANK]",
+                        radius_ip="[BLANK]",
+                        radius_port="[BLANK]",
+                        freq_24="[BLANK]",
+                        freq_5="[BLANK]",
+                        post_ifup_script="[BLANK]",
+                        ocsp="[BLANK]",
+                        venue_id="[BLANK]",
+                        sae_pwe="[BLANK]",
+                        initial_band_pref=0,
+                        bss_color="[BLANK]"
+                        ):
+        self.wifi_extra2_data_modified = True
+        self.wifi_extra2_data["req_flush"] = req_flush
+        self.wifi_extra2_data["ignore_probe"] = ignore_probe
+        self.wifi_extra2_data["ignore_auth"] = ignore_auth
+        self.wifi_extra2_data["ignore_assoc"] = ignore_assoc
+        self.wifi_extra2_data["ignore_reassoc"] = ignore_ressoc
+        self.wifi_extra2_data["corrupt_gtk_rekey_mic"] = corrupt_gtk_rekey_mic
+        self.wifi_extra2_data["radius_ip"] = radius_ip
+        self.wifi_extra2_data["radius_port"] = radius_port
+        self.wifi_extra2_data["freq_24"] = freq_24
+        self.wifi_extra2_data["freq_5"] = freq_5
+        self.wifi_extra2_data["post_ifup_script"] = post_ifup_script
+        self.wifi_extra2_data["ocsp"] = ocsp
+        self.wifi_extra2_data["venue_id"] = venue_id
+        self.wifi_extra2_data["sae_pwe"] = sae_pwe
+        self.wifi_extra2_data["initial_band_pref"] = initial_band_pref
+        self.wifi_extra2_data["bss_color"] = bss_color
+
     def set_reset_extra(self, reset_port_enable=False, test_duration=0, reset_port_min_time=0, reset_port_max_time=0):
         self.reset_port_extra_data["reset_port_enable"] = reset_port_enable
         self.reset_port_extra_data["test_duration"] = test_duration
         self.reset_port_extra_data["reset_port_time_min"] = reset_port_min_time
         self.reset_port_extra_data["reset_port_time_max"] = reset_port_max_time
 
+    # Sets security configuration for the station.
+    # Security type and SSID are required. Password is optional.
+    #
+    # Security type is one of following (case insensitive)
+    #   - 'open'
+    #   - 'owe'
+    #   - 'wep'
+    #   - 'wpa'
+    #   - 'wpa2'
+    #   - 'wpa3'
     def use_security(self, security_type, ssid=None, passwd=None):
-        types = {"wep": "wep_enable", "wpa": "wpa_enable", "wpa2": "wpa2_enable", "wpa3": "use-wpa3", "open": "[BLANK]"}
+        SECURITY_TYPES = {
+            "open": "[BLANK]",
+            "owe": "use-owe",
+            "wep": "wep_enable",
+            "wpa": "wpa_enable",
+            "wpa2": "wpa2_enable",
+            "wpa3": "use-wpa3"
+        }
+
+        # This logic assumes security type must be all lowercase,
+        # but caller may pass a non-upper case security type
+        # so long as it matches one of supported types
+        security_type = security_type.lower()
+
         self.add_sta_data["ssid"] = ssid
-        if security_type in types.keys():
+        if security_type in SECURITY_TYPES.keys():
             if (ssid is None) or (ssid == ""):
                 raise ValueError("use_security: %s requires ssid" % security_type)
             if (passwd is None) or (passwd == ""):
-                raise ValueError("use_security: %s requires passphrase or [BLANK]" % security_type)
-            for name in types.values():
+                raise ValueError("use_security: %s requires passphrase, NA or [BLANK]" % security_type)
+            for name in SECURITY_TYPES.values():
                 if name in self.desired_add_sta_flags and name in self.desired_add_sta_flags_mask:
                     self.desired_add_sta_flags.remove(name)
                     self.desired_add_sta_flags_mask.remove(name)
             if security_type != "open":
-                self.desired_add_sta_flags.append(types[security_type])
+                self.desired_add_sta_flags.append(SECURITY_TYPES[security_type])
                 # self.set_command_flag("add_sta", types[security_type], 1)
-                self.desired_add_sta_flags_mask.append(types[security_type])
+                self.desired_add_sta_flags_mask.append(SECURITY_TYPES[security_type])
             else:
                 passwd = "[BLANK]"
             self.set_command_param("add_sta", "ssid", ssid)
@@ -244,7 +314,14 @@ class StationProfile:
             # unset any other security flag before setting our present flags
             if security_type == "wpa3":
                 self.set_command_param("add_sta", "ieee80211w", 2)
-            # self.add_sta_data["key"] = passwd
+            if security_type == "owe":
+                self.set_wifi_extra(key_mgmt="OWE")
+                # 802.11u is not necessary when owe selected
+                if "80211u_enable" in self.desired_add_sta_flags:
+                    self.desired_add_sta_flags.remove("80211u_enable")
+                self.set_command_param("add_sta", "ieee80211w", 2)
+                self.set_command_flag("add_sta", "8021x_radius", 1)
+                self.set_command_flag("add_sta", "use-owe", 1)
 
     @staticmethod
     def station_mode_to_number(mode):
@@ -299,7 +376,7 @@ class StationProfile:
             if (value == 1) and (param_name not in self.desired_add_sta_flags):
                 self.desired_add_sta_flags.append(param_name)
                 self.desired_add_sta_flags_mask.append(param_name)
-            elif value == 0 and (param_name in self.desired_add_sta_flags):
+            elif value == 0:
                 self.desired_add_sta_flags.remove(param_name)
                 self.desired_add_sta_flags_mask.append(param_name)
 
@@ -342,14 +419,14 @@ class StationProfile:
 
     def add_named_flags(self, desired_list, command_ref):
         if desired_list is None:
-            logger.critical("addNamedFlags wants a list of desired flag names")
-            raise ValueError("addNamedFlags wants a list of desired flag names")
+            logger.info("add_named_flags wants a list of desired flag names")
+            raise ValueError("add_named_flags wants a list of desired flag names")
         if len(desired_list) < 1:
-            logger.warning("addNamedFlags: empty desired list")
+            logger.info("add_named_flags: empty desired list")
             return 0
         if (command_ref is None) or (len(command_ref) < 1):
-            logger.critical("addNamedFlags wants a maps of flag values")
-            raise ValueError("addNamedFlags wants a maps of flag values")
+            logger.critical("add_named_flags wants a maps of flag values")
+            raise ValueError("add_named_flags wants a maps of flag values")
 
         result = 0
         for name in desired_list:
@@ -449,6 +526,7 @@ class StationProfile:
         self.add_sta_data["flags"] = self.add_named_flags(self.desired_add_sta_flags, add_sta.add_sta_flags)
         self.add_sta_data["flags_mask"] = self.add_named_flags(self.desired_add_sta_flags_mask, add_sta.add_sta_flags)
         self.add_sta_data["radio"] = radio_port
+        self.add_sta_data["ap"] = self.bssid
 
         self.add_sta_data["resource"] = radio_resource
         self.add_sta_data["shelf"] = radio_shelf
@@ -460,6 +538,8 @@ class StationProfile:
                                                               set_port.set_port_interest_flags)
         self.wifi_extra_data["resource"] = radio_resource
         self.wifi_extra_data["shelf"] = radio_shelf
+        self.wifi_extra2_data["resource"] = radio_resource
+        self.wifi_extra2_data["shelf"] = radio_shelf
         self.wifi_txo_data["resource"] = radio_resource
         self.wifi_txo_data["shelf"] = radio_shelf
         self.reset_port_extra_data["resource"] = radio_resource
@@ -470,6 +550,7 @@ class StationProfile:
         add_sta_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/add_sta", debug_=debug)
         set_port_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/set_port", debug_=debug)
         wifi_extra_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/set_wifi_extra", debug_=debug)
+        wifi_extra2_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/set_wifi_extra2", debug_=debug)
         wifi_txo_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/set_wifi_txo", debug_=debug)
         # add radio here
         if num_stations and not sta_names_:
@@ -559,11 +640,16 @@ class StationProfile:
 
             self.wifi_extra_data["resource"] = radio_resource
             self.wifi_extra_data["port"] = name
+            self.wifi_extra2_data["resource"] = radio_resource
+            self.wifi_extra2_data["port"] = name
             self.wifi_txo_data["resource"] = radio_resource
             self.wifi_txo_data["port"] = name
             if self.wifi_extra_data_modified:
                 wifi_extra_r.addPostData(self.wifi_extra_data)
                 wifi_extra_r.jsonPost(debug)
+            if self.wifi_extra2_data_modified:
+                wifi_extra2_r.addPostData(self.wifi_extra2_data)
+                wifi_extra2_r.jsonPost(debug)
             if self.wifi_txo_data_modified:
                 wifi_txo_r.addPostData(self.wifi_txo_data)
                 wifi_txo_r.jsonPost(debug)
@@ -600,7 +686,7 @@ class StationProfile:
 
     def modify(self, radio):
         for station in self.station_names:
-            logger.info(station)
+            logger.info(f"modifying station {station}")
             self.add_sta_data["flags"] = self.add_named_flags(self.desired_add_sta_flags, add_sta.add_sta_flags)
             self.add_sta_data["flags_mask"] = self.add_named_flags(self.desired_add_sta_flags_mask,
                                                                    add_sta.add_sta_flags)
@@ -615,15 +701,93 @@ class StationProfile:
             self.add_sta_data["resource"] = station_resource
             self.add_sta_data["sta_name"] = station_port
             self.add_sta_data["ssid"] = 'NA'
+            self.add_sta_data['ap'] = 'DEFAULT'
             self.add_sta_data["key"] = 'NA'
+            # add_sta is not the correct cmd to set a mac address, but set_port is
             self.add_sta_data['mac'] = 'NA'
             self.add_sta_data['mode'] = 'NA'
+            if self.mode in add_sta.add_sta_modes:
+                self.add_sta_data['mode'] = add_sta.add_sta_modes[self.mode]
+            elif self.debug:
+                logging.debug(f"* * {self.mode} not found in add_sta.add_sta_modes")
+
             self.add_sta_data['suppress_preexec_cli'] = 'NA'
             self.add_sta_data['suppress_preexec_method'] = 'NA'
+            if self.debug:
+                self.add_sta_data['__debug'] = self.debug
+            if self.bssid:
+                self.add_sta_data['ap'] = self.bssid
+            if self.ssid:
+                self.add_sta_data['ssid'] = self.ssid
+            if self.ssid_pass:
+                self.add_sta_data['key'] = self.ssid_pass
+            # if self.mac: use set_port_data['mac'] when modifying a station's mac
+            self.add_sta_data['mac'] = 'NA'
 
             add_sta_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/add_sta")
             if self.debug:
                 logger.debug(self.lfclient_url + "/cli_json/add_sta")
                 logger.debug(self.add_sta_data)
             add_sta_r.addPostData(self.add_sta_data)
-            add_sta_r.jsonPost(self.debug)
+            add_sta_r.jsonPost(debug=self.debug, show_error=True, die_on_error_=False)
+
+            do_set_port = 0
+            self.desired_set_port_cmd_flags = []
+            self.desired_set_port_current_flags = []
+            self.desired_set_port_interest_flags = []
+            self.set_port_data['mac'] = 'NA'
+            if self.mac:
+                do_set_port += 1
+                self.desired_set_port_interest_flags.append("mac_address")
+                self.set_port_data["mac"] = self.mac
+            if self.ip:
+                do_set_port += 1
+                self.desired_set_port_interest_flags.extend(["ip_address", "ip_Mask", "ip_gateway"])
+                if self.ip == "DHCP" or self.ip == "dhcp" or self.dhcp:
+                    if self.ipv6:
+                        self.desired_set_port_current_flags.append("use_dhcpv6")
+                        self.desired_set_port_interest_flags.append("dhcpv6")
+                    else:
+                        self.set_port_data["ip_addr"] = "0.0.0.0"
+                        self.set_port_data['netmask'] = "0.0.0.0"
+                        self.set_port_data['gateway'] = "0.0.0.0"
+                        self.desired_set_port_current_flags.append("use_dhcp")
+                        self.desired_set_port_interest_flags.append("dhcp")
+                        self.desired_set_port_interest_flags.append("current_flags")
+                else:
+                    self.set_port_data['ip_addr'] = self.ip
+
+            if self.ipv6:
+                do_set_port += 1
+                self.set_port_data['ipv6'] = self.ipv6
+            if self.up:
+                do_set_port += 1
+                if self.up == "DOWN" or self.up == "down":
+                    self.desired_set_port_current_flags.append("if_down")
+                self.desired_set_port_interest_flags.append("ifdown")
+            if self.netmask:
+                do_set_port += 1
+                self.set_port_data['netmask'] = self.netmask
+            if self.gateway:
+                do_set_port += 1
+                self.set_port_data['gateway'] = self.gateway
+            if do_set_port:
+                self.set_port_data['current_flags'] = self.add_named_flags(
+                    desired_list=self.desired_set_port_current_flags,
+                    command_ref=set_port.set_port_current_flags)
+                self.set_port_data['interest'] = self.add_named_flags(
+                    desired_list=self.desired_set_port_interest_flags,
+                    command_ref=set_port.set_port_interest_flags)
+                self.set_port_data['shelf'] = station_shelf
+                self.set_port_data['resource'] = station_resource
+                self.set_port_data['port'] = station_port
+                if self.debug:
+                    self.set_port_data['__debug'] = 1
+                set_port_r = LFRequest.LFRequest(self.lfclient_url + "/cli-json/set_port")
+                set_port_r.addPostData(self.set_port_data)
+                response_list = []
+                set_port_r.jsonPost(show_error=self.debug,
+                                    debug=self.debug,
+                                    die_on_error_=False,
+                                    response_json_list_=response_list)
+                # pprint.pprint(["post", self.set_port_data, "response", response_list])
