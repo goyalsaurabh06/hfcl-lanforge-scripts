@@ -663,17 +663,17 @@ class Realm(LFCliBase):
     # Returns all attenuators
     def atten_list(self):
         response = super().json_get("/atten/list")
-        return response['attenuators']
+        return response['attenuator']
 
     # EID is shelf.resource.atten-serno.atten-idx
-    def set_atten(self, eid, atten_ddb):
+    def set_atten(self, eid, atten_ddb, atten_idx='all'):
         eid_toks = self.name_to_eid(eid, non_port=True)
         req_url = "cli-json/set_attenuator"
         data = {
             "shelf": eid_toks[0],
             "resource": eid_toks[1],
             "serno": eid_toks[2],
-            "atten_idx": eid_toks[3],
+            "atten_idx": atten_idx,
             "val": atten_ddb,
         }
         self.json_post(req_url, data)
@@ -999,6 +999,15 @@ class Realm(LFCliBase):
                 "endpoint": "all"
             }
             self.json_post(req_url, data)
+
+    def set_custom_wifi(self, resource, station, cmd):  # bg-scanning
+        bg_scan = {
+            "shelf": 1,
+            "resource": resource,
+            "port": station,
+            "text": cmd
+        }
+        self.json_post("/cli-json/set_wifi_custom", bg_scan)
 
     def parse_link(self, link):
         link = self.lfclient_url + link
