@@ -184,32 +184,24 @@ class BandSteer(Realm):
 
     def create_specific_cx(self, station_list, traffic_type='lf_tcp', upstream=None, pairs=0):
 
-        if pairs == 0:
-            self.cx_profile = self.new_l3_cx_profile()
-            self.cx_profile.host = self.lanforge_ip
-            self.cx_profile.port = self.port
+        self.cx_profile = self.new_l3_cx_profile()
+        self.cx_profile.host = self.lanforge_ip
+        self.cx_profile.port = self.port
 
+        self.cx_profile.side_a_min_bps = 0
+        self.cx_profile.side_a_max_bps = 0
+        self.cx_profile.side_b_min_bps = 100_000_000
+        self.cx_profile.side_b_max_bps = 0
+
+        if pairs == 0:
             self.cx_profile.name_prefix = 'steer_DL_'
-            self.cx_profile.side_a_min_bps = 0
-            self.cx_profile.side_a_max_bps = 0
-            self.cx_profile.side_b_min_bps = 100_000_000
-            self.cx_profile.side_b_max_bps = 0
 
             self.cx_profile.create(endp_type=traffic_type,
                                    side_a=station_list,
                                    side_b=self.upstream if upstream is None else upstream)
         else:
             for pair in range(1, int(pairs)+1):
-                self.cx_profile = self.new_l3_cx_profile()
-                self.cx_profile.host = self.lanforge_ip
-                self.cx_profile.port = self.port
-
                 self.cx_profile.name_prefix = f'steer_DL_{pair}_'
-                self.cx_profile.side_a_min_bps = 0
-                self.cx_profile.side_a_max_bps = 0
-                self.cx_profile.side_b_min_bps = 100_000_000
-                self.cx_profile.side_b_max_bps = 0
-
                 self.cx_profile.create(endp_type=traffic_type,
                                        side_a=station_list,
                                        side_b=self.upstream if upstream is None else upstream)
@@ -413,6 +405,7 @@ class BandSteer(Realm):
                 retry_count += 1
             if ip_addr is not None:
                 self.station_ips[station] = ip_addr
+        return self.station_ips
 
     def _ssh_run_mgr(self, cmd, host=None, timeout=30):
         if not hasattr(self, "_mgr_ssh"):
@@ -467,9 +460,10 @@ class BandSteer(Realm):
                 # Choose correct manager
                 if resource == "1":
                     rc, out, err = self._ssh_run_mgr(cmd, host=None)
-                elif resource == "2" or resource == "3":
-                    resource_host = self.get_resource_host(resource=resource)
-                    rc, out, err = self._ssh_run_mgr(cmd, host=list(resource_host.values())[0])
+                elif resource == "2":
+                    continue
+                    # resource_host = self.get_resource_host(resource=resource)
+                    # rc, out, err = self._ssh_run_mgr(cmd, host=list(resource_host.values())[0])
                 else:
                     logs.append(f"Unknown resource for port {port}")
                     return False, "\n".join(logs)
@@ -584,6 +578,31 @@ class BandSteer(Realm):
 
         return bssid_map if as_dict else bssids
 
+    def get_rssi(self, as_dict=False, station_list=None):
+        rssi_lst = []
+        rssi_map = {}
+        removable_stations = []
+
+        if station_list is None:
+            station_list = self.get_station_list()
+
+        for station in station_list:
+            rssi = self.get_port_data(station, 'signal ')
+            retry_count = 0
+            while rssi in (None, 'NA', "", 'null'):
+                if retry_count >= 30:
+                    break
+                time.sleep(3)
+                rssi = self.get_port_data(station, 'signal')
+                retry_count += 1
+
+            if rssi is not None and rssi not in ('null', 'NA', ""):
+                rssi_lst.append(rssi)
+                rssi_map[station] = rssi
+            else:
+                removable_stations.append(station)
+
+        return rssi_map if as_dict else rssi_lst
     def get_sta_bssids(self):
         sta_bssids = {}
         for station in self.get_station_list():
@@ -602,6 +621,27 @@ class BandSteer(Realm):
             signal = self.get_port_data(station, 'signal')
         if (signal is not None):
             return int(signal.split(' ')[0])
+
+    def get_throughput_snapshot(self, label):
+        """
+        Creates a readable throughput snapshot for Allure
+        """
+        lines = [f"Throughput Snapshot: {label}", "-" * 50]
+
+        for cx_name, samples in self.traffic_data.items():
+            if not samples:
+                continue
+
+            last = samples[-1]
+            lines.append(
+                f"{cx_name} | "
+                f"RX A: {last['bps_rx_a']} bps | "
+                f"RX B: {last['bps_rx_b']} bps | "
+                f"Drop A: {last['rx_drop_a']}% | "
+                f"Drop B: {last['rx_drop_b']}%"
+            )
+
+        return "\n".join(lines)
 
     def record_traffic_data(self):
         self.traffic_data = dict()
@@ -1334,7 +1374,7 @@ class BandSteer(Realm):
             else:
                 print("some problem with monitor not being up")
         else:
-            # Creation of Dummy stations for mtk 7996 radios temporarily disabled
+            # Creation of Dummy stations for mtk 7996 radios
             # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
             # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
 
