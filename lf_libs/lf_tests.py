@@ -3041,6 +3041,9 @@ class lf_tests(lf_libs):
                     return 'FAIL', f'Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
 
             # band_steer.stop_cx()
+            # Admin Down
+            for station in sta_list_2:
+                band_steer.admin_down(station)
 
             band_steer.create_specific_cx(station_list=sta_list_1, pairs=3)
             band_steer.start_cx()
@@ -3059,23 +3062,24 @@ class lf_tests(lf_libs):
                     attachment_type=allure.attachment_type.TEXT
                 )
 
-            # ==========================================================
-            # TODO: Check association of station back to 5Ghz, skipping
-            # ==========================================================
+            # Admin Up
+            for station in sta_list_2:
+                band_steer.admin_up(station)
+
             band_steer.create_specific_cx(station_list=sta_list_1, pairs=3)
             band_steer.start_cx()
             time.sleep(20)
             band_steer.stop()
             band_steer.clean_cxs()
 
-            with allure.step("Record throughput values before reassociation"):
-                snapshot_before = band_steer.get_throughput_snapshot(
-                    label="Before STA reassociation"
+            with allure.step("Record throughput values after reassociation"):
+                snapshot_after = band_steer.get_throughput_snapshot(
+                    label="After STA reassociation"
                 )
 
                 allure.attach(
-                    snapshot_before,
-                    name="Throughput Before Reassociation",
+                    snapshot_after,
+                    name="Throughput After Reassociation",
                     attachment_type=allure.attachment_type.TEXT
                 )
 
