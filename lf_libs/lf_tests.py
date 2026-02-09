@@ -1136,11 +1136,19 @@ class lf_tests(lf_libs):
         attenuator2 = {
             k: v for k, v in attenuators.items() if len(v) == 2
         }
+        # Initialize station-radio tracking dictionary at the beginning of the method
+        station_radio_map = {}
+
+        def track_station_creation(radio, station_list):
+            """Track which stations were created on which radio."""
+            if radio not in station_radio_map:
+                station_radio_map[radio] = []
+            station_radio_map[radio].extend(station_list)
         # NOTE: standard test_type is same for both standard and few data vlan test cases.
 
         if test_type == "standard":
             """
-                Test Cases TC_2.4.8_13 and TC_2.4.8_14
+                Test Cases TC_BS_13 and TC_BS_14
             """
             band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
@@ -1176,6 +1184,9 @@ class lf_tests(lf_libs):
             band_steer.pre_cleanup(sta_list)
 
             band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -1340,11 +1351,25 @@ class lf_tests(lf_libs):
                 if before_bssid == after_bssid or before_channel == after_channel:
                     return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
 
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)\
+
             return 'PASS', test_results
 
         elif test_type == "pre_assoc":
             """
-                Test Cases TC_2.4.8_2 and TC_2.4.8_3 Pre-Association Steering
+                Test Cases TC_BS_2 and TC_BS_3 Pre-Association Steering
                 
                 Purpose:
                 Verify that a client is steered to 5GHz/2.4GHz during authentication when 2.4GHz/5Ghz is overloaded.
@@ -1398,6 +1423,10 @@ class lf_tests(lf_libs):
                 radio=dict_all_radios_5g["mtk_radios"][1])  #  "1.2.wiphy0"
 
             sta_list = sta_list_1 + sta_list_2
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
 
             print(f"[DEBUG] Station List: {sta_list}")
             # Clean up if there are already existing station with same name
@@ -1616,6 +1645,21 @@ class lf_tests(lf_libs):
 
                     if before_channel == after_channel:
                         return 'FAIL', 'Channel did not change after attenuation'
+
+                print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+                # Attach the station-radio mapping to allure for debugging
+                allure.attach(
+                    body=json.dumps(station_radio_map, indent=4),
+                    name="Station-Radio Mapping",
+                    attachment_type=allure.attachment_type.JSON
+                )
+                # Collect supplicant logs for each radio
+                for radio, stations in station_radio_map.items():
+                    if stations:
+                        print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                        self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
                 return 'PASS', test_results
 
             else:
@@ -1623,7 +1667,7 @@ class lf_tests(lf_libs):
 
         elif test_type == "post_assoc":
             """
-                Test Cases TC_2.4.8_4 and TC_2.4.8_5 Post-Association Steering
+                Test Cases TC_BS_4 and TC_BS_5 Post-Association Steering
                 
                 Purpose:
                 Validate post-association steering when the 2.4GHz/5Ghz band becomes overloaded.
@@ -1677,6 +1721,10 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Station List: {sta_list_2}")
 
             sta_list = sta_list_1 + sta_list_2
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
 
             # Clean up if there are already existing station with same name
             band_steer.pre_cleanup(sta_list)
@@ -1888,6 +1936,21 @@ class lf_tests(lf_libs):
                     
                     if before_channel == after_channel:
                         return 'FAIL', 'Channel did not change after attenuation'
+
+                print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+                # Attach the station-radio mapping to allure for debugging
+                allure.attach(
+                    body=json.dumps(station_radio_map, indent=4),
+                    name="Station-Radio Mapping",
+                    attachment_type=allure.attachment_type.JSON
+                )
+                # Collect supplicant logs for each radio
+                for radio, stations in station_radio_map.items():
+                    if stations:
+                        print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                        self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
                 return 'PASS', test_results
 
             else:
@@ -1895,7 +1958,7 @@ class lf_tests(lf_libs):
 
         elif test_type == "neither_band_post_assoc":
             """
-                Test Cases TC_2.4.8_6  Neither 2.4GHz nor 5GHz Overloaded – Post-Association Steering
+                Test Cases TC_BS_6  Neither 2.4GHz nor 5GHz Overloaded – Post-Association Steering
 
                 Purpose:
                 Ensure correct steering behavior when neither band is overloaded.
@@ -2020,6 +2083,11 @@ class lf_tests(lf_libs):
 
             sta_list = sta_list_1 + sta_list_2 + sta_list_3
             band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_2)
+            track_station_creation(dict_all_radios_5g["be200_radios"][0], sta_list_3)
 
             # -------------------- Validate Initial Band --------------------
             # before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_1)
@@ -2156,6 +2224,20 @@ class lf_tests(lf_libs):
                     if before_bssid == after_bssid or before_channel == after_channel:
                         return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
 
+                print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+                # Attach the station-radio mapping to allure for debugging
+                allure.attach(
+                    body=json.dumps(station_radio_map, indent=4),
+                    name="Station-Radio Mapping",
+                    attachment_type=allure.attachment_type.JSON
+                )
+                # Collect supplicant logs for each radio
+                for radio, stations in station_radio_map.items():
+                    if stations:
+                        print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                        self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
                 return 'PASS', test_results
 
             else:
@@ -2163,7 +2245,7 @@ class lf_tests(lf_libs):
 
         elif test_type == "stickiness":
             """
-                Test Case: TC_2.4.8_7 Band Steering Stickiness (Ping-Pong Avoidance)
+                Test Case: TC_BS_7 Band Steering Stickiness (Ping-Pong Avoidance)
             
                 Purpose:
                 Ensure clients do not oscillate between bands during the steering prohibit timer.
@@ -2256,6 +2338,11 @@ class lf_tests(lf_libs):
 
                 sta_list = sta_list_1 + sta_list_2 + sta_list_3
                 band_steer.pre_cleanup(sta_list)
+
+                # Track station-radio mapping
+                track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+                track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
+                track_station_creation(dict_all_radios_5g["mtk_radios"][2], sta_list_3)
 
                 band_steer.create_clients(
                     radio=dict_all_radios_5g["mtk_radios"][0],
@@ -2401,12 +2488,25 @@ class lf_tests(lf_libs):
                 "Stickiness Test Summary",
                 allure.attachment_type.JSON,
             )
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             return overall_status, iteration_results
 
         elif test_type == "steer_success_rate":
             """
-                Test Cases TC_2.4.8_8 Band Steering Success Rate
+                Test Cases TC_BS_8 Band Steering Success Rate
     
                 Purpose:
                 Validate steering reliability by measuring success rate across multiple iterations.
@@ -2537,6 +2637,11 @@ class lf_tests(lf_libs):
                     # Combine all station lists
                     sta_list = sta_list_1 + sta_list_2 + sta_list_3
                     band_steer.station_list = sta_list
+
+                    # Track station-radio mapping
+                    track_station_creation(dict_all_radios_5g["be200_radios"][0], sta_list_1)
+                    track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
+                    track_station_creation(dict_all_radios_5g["mtk_radios"][2], sta_list_3)
 
                     # ========== STEP 3: Verify Initial Connections ==========
                     print(f"\n[Iteration {iteration}] Step 3: Verifying initial band connections...")
@@ -2752,6 +2857,20 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
             # Final assertion based on expected output
             if success_count >= 5:
                 print(f"\n✓ TEST PASSED: Success rate {success_count}/{total_iterations} ≥ 5/6")
@@ -2768,7 +2887,7 @@ class lf_tests(lf_libs):
 
         elif test_type == "performance":
             """
-                Test Cases TC_2.4.8_9 Band Steering Performance Improvement
+                Test Cases TC_BS_9 Band Steering Performance Improvement
 
                 Purpose:
                 Verify throughput improvement after band steering under congestion.
@@ -2869,6 +2988,10 @@ class lf_tests(lf_libs):
             )
 
             sta_list = sta_list_1 + sta_list_2
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
 
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
             before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
@@ -3096,13 +3219,802 @@ class lf_tests(lf_libs):
             except Exception as e:
                 print("Allure attach failed:", e)
 
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+            return 'PASS', test_results
+
+        elif test_type == "vlan_standard":
+            """
+                Test Cases TC_BS_15 and TC_BS_16
+            """
+            band_steer = BandSteer(
+                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
+                port=get_testbed_details.get("port", 8080),
+                ssid=ssid,
+                security=security,
+                password=passkey,
+                num_sta=num_sta,
+                test_type=test_type,
+                steer_type=steer_type,
+                station_radio=dict_all_radios_5g["mtk_radios"][1],   # "1.1.wiphy1"
+                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
+                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
+                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                set_max_attenuators=test_config.get("set_max_attenuators", None),
+                step=test_config.get("step", 5),
+                max_attenuation=test_config.get("max_attenuation", 30), # Try connecting Far from AP for standard testcase
+                wait_time=test_config.get("wait_time", 10),
+                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
+                initial_band_pref="5GHz"
+            )
+
+            # -------------------- QVLAN Creation --------------------
+            vlan_id = 100
+            self.add_vlan(vlan_ids=[vlan_id], build=True)
+
+            # -------------------- STA Creation --------------------
+            sta_list = band_steer.get_sta_list_before_creation(
+                num_sta=num_sta,
+                radio=dict_all_radios_5g["mtk_radios"][0])
+            print(f"[DEBUG] Station List: {sta_list}")
+
+            # Clean up if there are already existing station with same name
+            band_steer.pre_cleanup(sta_list)
+
+            band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
+
+            # -------------------- Start Sniffer --------------------
+            band_steer.start_sniffer(ssid=ssid,
+                                     password=passkey,
+                                     security=security)
+
+            # -------------------- Initial Conditions --------------------
+            if band_steer.steer_type == 'steer_fiveg':
+                get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
+
+                for idx in range(3, 5):
+                    band_steer.set_atten("1.1.3009", 0, idx - 3)
+                    band_steer.set_atten("1.1.3002", 0, idx - 1)
+                    band_steer.set_atten("1.1.3002", 0, idx - 3)
+
+                band_steer.create_clients(
+                    radio=band_steer.station_radio,
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+
+                # Verify station connected to 2Ghz band and then enable 5Ghz band
+                get_target_object.dut_library_object.control_radio_band(band="5g", action="up")
+
+            else:
+                for idx in range(3, 5):
+                    band_steer.set_atten("1.1.3009", 300, idx - 3)
+                    band_steer.set_atten("1.1.3002", 0, idx - 1)
+                    band_steer.set_atten("1.1.3002", 0, idx - 3)
+
+                band_steer.create_clients(
+                    radio=band_steer.station_radio,
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+            # -------------------- Validate Initial Band --------------------
+            print(f"\nStarting band steering test...")
+            before_bssid = band_steer.get_bssids(as_dict=True)
+            before_chan = band_steer.get_channel(as_dict=True)
+            before_rssi = band_steer.get_rssi(as_dict=True)
+            before_state = {}
+
+            for sta in sta_list:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info {before_state}")
+
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for sta, ch in before_chan.items():
+                ch = int(ch)
+                if band_steer.steer_type == 'steer_fiveg':
+                    # Expected: STA creation on band 2.4 GHz
+                    if ch is None or ch not in range(1, 15):
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
+                            f"Observed band: 5Ghz  (Channel {ch}) \n"
+                            f"Expected band: 2.4Ghz"
+                        )
+
+                elif band_steer.steer_type == 'steer_twog':
+                    # Expected: STA creation on band 5 GHz
+                    if ch is None or ch < 36:
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 5 GHz before steering. \n"
+                            f"Observed band: 2.4Ghz  (Channel {ch}) \n"
+                            f"Expected band: 5Ghz"
+                        )
+
+            # -------------------- Trigger Steering --------------------
+            start_time, end_time = band_steer.start_band_steer_test_standard(
+                attenuator='1.1.3009', modules=[1, 2],
+                steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+
+
+            # temporarily waiting for 2 mins
+            time.sleep(120)
+
+            print(f"[DEBUG] Start Time : {start_time}")
+            print(f"[DEBUG] End Time : {end_time}")
+
+            # -------------------- Validate Steering --------------------
+            after_bssid = band_steer.get_bssids(as_dict=True)
+            after_chan = band_steer.get_channel(as_dict=True)
+            after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Stop Sniffer --------------------
+            local_pcap = band_steer.stop_sniffer()
+
+            try:
+                with open(local_pcap, "rb") as f:
+                    allure.attach(
+                        f.read(),
+                        name="Band Steering Sniffer Capture",
+                        attachment_type=allure.attachment_type.PCAP
+                    )
+            except Exception as e:
+                print("Allure attach failed:", e)
+
+            stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
+
+            test_results = {}
+            after_state = {}
+
+            for sta in sorted(stations):
+                test_results[sta] = {
+                    "before_bssid": before_bssid.get(sta),
+                    "before_channel": before_chan.get(sta),
+                    "before_rssi": before_rssi.get(sta),
+                    "after_bssid": after_bssid.get(sta),
+                    "after_channel": after_chan.get(sta),
+                    "after_rssi": after_rssi.get(sta)
+                }
+
+            for sta in sta_list:
+                after_state[sta] = {
+                    "bssid": after_bssid.get(sta),
+                    "channel": after_chan.get(sta),
+                    "rssi": after_rssi.get(sta)
+                }
+
+            allure.attach(
+                body=json.dumps(after_state, indent=4),
+                name="After Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+            allure.attach(
+                body=json.dumps(test_results, indent=4),
+                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for _, result in test_results.items():
+                before_bssid = result.get("before_bssid")
+                after_bssid = result.get("after_bssid")
+                before_channel = result.get("before_channel")
+                after_channel = result.get("after_channel")
+                before_rssi = result.get("before_rssi")
+                after_rssi = result.get("after_rssi")
+
+                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+
+                if before_bssid == after_bssid or before_channel == after_channel:
+                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+            return 'PASS', test_results
+
+        elif test_type == "client_isolation":
+            """
+                Test Cases TC_BS_18
+            """
+            band_steer = BandSteer(
+                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
+                port=get_testbed_details.get("port", 8080),
+                ssid=ssid,
+                security=security,
+                password=passkey,
+                num_sta=num_sta,
+                test_type=test_type,
+                steer_type=steer_type,
+                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
+                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
+                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                set_max_attenuators=test_config.get("set_max_attenuators", None),
+                step=test_config.get("step", 5),
+                max_attenuation=test_config.get("max_attenuation", 45), # Try connecting Far from AP for standard testcase
+                wait_time=test_config.get("wait_time", 10),
+                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
+                initial_band_pref="5GHz"
+            )
+
+            # -------------------- QVLAN Creation --------------------
+            vlan_id = 100
+            self.add_vlan(vlan_ids=[vlan_id], build=True)
+
+            # -------------------- Initial Attenuation --------------------
+            for idx in range(3, 5):
+                band_steer.set_atten(band_steer.attenuators, 0, idx - 1)
+                band_steer.set_atten(band_steer.attenuators, 0, idx - 3)
+
+            # -------------------- Start Sniffer --------------------
+            band_steer.start_sniffer(ssid=ssid,
+                                     password=passkey,
+                                     security=security)
+
+            # -------------------- STA Creation--------------------
+            if band_steer.steer_type == 'steer_fiveg':
+                get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
+
+                # Connection of 1 client to 5Ghz band as per test case
+                sta_list_1 = band_steer.get_sta_list_before_creation(
+                    num_sta=1,
+                    radio=dict_all_radios_5g["mtk_radios"][0])  # "1.1.wiphy0"
+                print(f"[DEBUG] Station List: {sta_list_1}")
+
+                # Clean up if there are already existing station with same name
+                band_steer.pre_cleanup(sta_list_1)
+
+                band_steer.create_clients(
+                    radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list_1,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+                # Connection of 2 clients to 2Ghz band as per test case
+                sta_list_2 = band_steer.get_sta_list_before_creation(
+                    num_sta=1, start_id=1,
+                    radio=dict_all_radios_5g["mtk_radios"][1])  # "1.2.wiphy0"
+                print(f"[DEBUG] Station List: {sta_list_2}")
+
+                # Clean up if there are already existing station with same name
+                band_steer.pre_cleanup(sta_list_2)
+
+                band_steer.create_clients(
+                    radio=dict_all_radios_5g["mtk_radios"][1],  # "1.2.wiphy0"
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list_2,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+                # Verify station connected to 2Ghz band and then enable 5Ghz band
+                get_target_object.dut_library_object.control_radio_band(band="5g", action="up")
+
+            else:
+                # Connection of 1 client to 5Ghz band as per test case
+                sta_list_1 = band_steer.get_sta_list_before_creation(
+                    num_sta=1,
+                    radio=dict_all_radios_5g["mtk_radios"][0])  # "1.1.wiphy0"
+                print(f"[DEBUG] Station List: {sta_list_1}")
+
+                # Clean up if there are already existing station with same name
+                band_steer.pre_cleanup(sta_list_1)
+
+                band_steer.create_clients(
+                    radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list_1,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+                # Connection of 2 clients to 2Ghz band as per test case
+                sta_list_2 = band_steer.get_sta_list_before_creation(
+                    num_sta=1, start_id=1,
+                    radio=dict_all_radios_5g["mtk_radios"][1])  # "1.2.wiphy0"
+                print(f"[DEBUG] Station List: {sta_list_2}")
+
+                # Clean up if there are already existing station with same name
+                band_steer.pre_cleanup(sta_list_2)
+
+                band_steer.create_clients(
+                    radio=dict_all_radios_5g["mtk_radios"][1],  # "1.2.wiphy0"
+                    ssid=ssid,
+                    passwd=passkey,
+                    security=security,
+                    station_list=sta_list_2,
+                    station_flag="use-bss-transition",
+                    sta_type="normal",
+                    initial_band_pref="5GHz",
+                    option=None
+                )
+
+
+            # wait for some time to associate the clients
+            time.sleep(10)
+
+            # Clean up if there are already existing station with same name
+            sta_list = sta_list_1 + sta_list_2
+            band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
+
+            # -------------------- Validate Initial Band --------------------
+            print(f"\nStarting band steering test...")
+            before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
+            before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
+            before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+            before_state = {}
+
+            for sta in sta_list:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info")
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for sta, ch in before_chan.items():
+                ch = int(ch)
+                if band_steer.steer_type == 'steer_fiveg':
+                    # Expected: STA creation on band 2.4 GHz
+                    if ch is None or ch not in range(1, 15):
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
+                            f"Observed band: 5Ghz  (Channel {ch}) \n"
+                            f"Expected band: 2.4Ghz"
+                        )
+
+                elif band_steer.steer_type == 'steer_twog':
+                    # Expected: STA creation on band 5 GHz
+                    if ch is None or ch < 36:
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 5 GHz before steering. \n"
+                            f"Observed band: 2.4Ghz  (Channel {ch}) \n"
+                            f"Expected band: 5Ghz"
+                        )
+
+            # ---------- PING CHECK ----------
+            ping_status, ping_logs = band_steer.is_pinging()
+            allure.attach(
+                ping_logs,
+                name="Stations Ping Output",
+                attachment_type=allure.attachment_type.TEXT
+            )
+            print(f"[DEBUG] Ping status and logs {ping_status} {ping_logs}")
+
+            if ping_status:
+                return 'FAIL', 'Stations Pinging Each other even Client isolation is enabled.'
+
+            # -------------------- Trigger Steering --------------------
+            start_time, end_time = band_steer.start_band_steer_test_standard(
+                attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+
+            # temporarily waiting for 2 mins
+            time.sleep(120)
+
+            print(f"[DEBUG] Start Time : {start_time}")
+            print(f"[DEBUG] End Time : {end_time}")
+
+            # -------------------- Validate Steering --------------------
+            after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
+            after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
+            after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+
+            # -------------------- Stop Sniffer --------------------
+            local_pcap = band_steer.stop_sniffer()
+
+            try:
+                with open(local_pcap, "rb") as f:
+                    allure.attach(
+                        f.read(),
+                        name="Band Steering Sniffer Capture",
+                        attachment_type=allure.attachment_type.PCAP
+                    )
+            except Exception as e:
+                print("Allure attach failed:", e)
+
+            stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
+
+            test_results = {}
+            after_state = {}
+
+            for sta in sorted(stations):
+                test_results[sta] = {
+                    "before_bssid": before_bssid.get(sta),
+                    "before_channel": before_chan.get(sta),
+                    "before_rssi": before_rssi.get(sta),
+                    "after_bssid": after_bssid.get(sta),
+                    "after_channel": after_chan.get(sta),
+                    "after_rssi": after_rssi.get(sta)
+                }
+
+            for sta in sta_list:
+                after_state[sta] = {
+                    "bssid": after_bssid.get(sta),
+                    "channel": after_chan.get(sta),
+                    "rssi": after_rssi.get(sta)
+                }
+
+            allure.attach(
+                body=json.dumps(after_state, indent=4),
+                name="After Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+            allure.attach(
+                body=json.dumps(test_results, indent=4),
+                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for _, result in test_results.items():
+                before_bssid = result.get("before_bssid")
+                after_bssid = result.get("after_bssid")
+                before_channel = result.get("before_channel")
+                after_channel = result.get("after_channel")
+                before_rssi = result.get("before_rssi")
+                after_rssi = result.get("after_rssi")
+
+                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+
+                if before_bssid == after_bssid or before_channel == after_channel:
+                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+
+                print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
             return 'PASS', test_results
 
         elif test_type == "UE":
-            pass
+            """
+            Test Cases TC_BS_11 UE-Based Band Steering with EAP Security
+            Purpose:
+                Validate UE-based band steering functionality with Enterprise (EAP) security authentication.
+            Test Flow:
+                1. Configure local AAA server and AAA profile in the system
+                2. Create SSID with Enterprise security and map to AAA server
+                3. Enable band steering with configured thresholds
+                4. Connect three wireless clients (STA1, STA2, STA3) to 2.4GHz band
+                5. Verify connectivity via ping between all stations
+                6. Overload 2.4GHz band by injecting traffic from AP to all three stations
+                7. Verify AP detects 2.4GHz overload condition
+                8. Move STA2 and STA3 closer to AP for strong 5GHz RSSI (above RSSISteeringPoint)
+                9. Stop traffic to STA2 and verify steering to 5GHz via syslog and sniffer
+                10. Stop traffic to STA3 and verify steering to 5GHz via syslog and sniffer
+            Expected Results:
+                - AAA server configuration and SSID mapping successful
+                - All stations successfully connect to 2.4GHz band initially
+                - Traffic injection and overload detection work correctly
+                - STA2 disassociates from 2.4GHz and associates with 5GHz
+                - STA3 disassociates from 2.4GHz and associates with 5GHz
+                - Syslog confirms steering events and 5GHz associations
+                - Sniffer traces show disconnection from 2.4GHz and connection to 5GHz
+            """
 
-        elif test_type == "data_vlan_client_isolation":
-            pass
+            band_steer = BandSteer(
+                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
+                port=get_testbed_details.get("port", 8080),
+                ssid=ssid,
+                security=security,
+                password=passkey,
+                num_sta=num_sta,
+                test_type=test_type,
+                steer_type=steer_type,
+                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
+                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
+                attenuators=test_config.get("attenuators", '1.1.3002'),
+                set_max_attenuators=test_config.get("set_max_attenuators", None),
+                step=test_config.get("step", 2),
+                max_attenuation=test_config.get("max_attenuation", 20),
+                wait_time=test_config.get("wait_time", 10),
+                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
+                initial_band_pref="5GHz"
+            )
+            for idx in range(3, 5):
+                band_steer.set_atten('1.1.3009', 200, idx - 3)
+                band_steer.set_atten('1.1.3002', 200, idx - 1)
+                band_steer.set_atten('1.1.3002', 0, idx - 3)
+
+            # -------------------- Start Sniffer --------------------
+            # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
+            band_steer.start_sniffer(ssid=ssid,
+                                     password=passkey,
+                                     security=security)
+
+            get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
+
+            # -------------------- STA Creation --------------------
+            # Connection of 2 clients to 2Ghz band as per test case
+            sta_list_1 = band_steer.get_sta_list_before_creation(
+                num_sta=1,
+                radio=dict_all_radios_5g["mtk_radios"][0])  # "1.0.wiphy0"
+            print(f"[DEBUG] Station List: {sta_list_1}")
+
+            # Clean up if there are already existing station with same name
+            band_steer.pre_cleanup(sta_list_1)
+
+            band_steer.create_clients(
+                radio=dict_all_radios_5g["mtk_radios"][0],  # "1.0.wiphy0"
+                ssid=ssid,
+                passwd=passkey,
+                security=security,
+                station_list=sta_list_1,
+                station_flag="use-bss-transition",
+                sta_type="enterprise",
+                initial_band_pref="2GHz",
+                option=None
+            )
+
+            # Connection of 1 client to 5Ghz band as per test case
+            sta_list_2 = band_steer.get_sta_list_before_creation(
+                start_id=1, num_sta=2,
+                radio=dict_all_radios_5g["mtk_radios"][1])  # "1.2.wiphy0"
+            print(f"[DEBUG] Station List: {sta_list_2}")
+
+            # Clean up if there are already existing station with same name
+            band_steer.pre_cleanup(sta_list_2)
+
+            band_steer.create_clients(
+                radio=dict_all_radios_5g["mtk_radios"][1],  # "1.2.wiphy0"
+                ssid=ssid,
+                passwd=passkey,
+                security=security,
+                station_list=sta_list_2,
+                station_flag="use-bss-transition",
+                sta_type="enterprise",
+                initial_band_pref="5GHz",
+                option=None
+            )
+
+            sta_list = sta_list_1 + sta_list_2
+            band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
+            track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
+
+            # -------------------- Validate Initial Band --------------------
+            # before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_1)
+            before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
+            for sta, ch in before_chan.items():
+                ch = int(ch)
+                if ch is None or ch not in range(1, 15):
+                    pytest.fail(
+                        f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
+                        f"Observed band: 5Ghz  (Channel {ch}) \n"
+                        f"Expected band: 2.4Ghz"
+                    )
+
+            before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
+            before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
+            before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+
+            before_state = {}
+
+            for sta in sta_list_2:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            ping_status, ping_logs = band_steer.is_pinging()
+            allure.attach(
+                ping_logs,
+                name="Stations Ping Output",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
+            print(f"[DEBUG] Ping status and logs {ping_status} {ping_logs}")
+            if ping_status:
+
+                # -------------------- Trigger Steering --------------------
+                start_time, end_time = band_steer.start_band_steer_test_standard(
+                    attenuator='1.1.3009', modules=[1, 2], steer='twog')
+
+                print(f"[DEBUG] Start Time : {start_time}")
+                print(f"[DEBUG] End Time : {end_time}")
+
+                band_steer.create_cx(traffic_type="lf_tcp")
+                band_steer.start_cx()
+
+                start_time, end_time = band_steer.start_band_steer_test_standard(
+                    attenuator='1.1.3009', modules=[1, 2], steer='twog')
+
+                print(f"[DEBUG] Start Time : {start_time}")
+                print(f"[DEBUG] End Time : {end_time}")
+
+                start_time, end_time = band_steer.start_band_steer_test_standard(
+                    attenuator='1.1.3002', modules=[3, 4], steer='fiveg')
+
+                # temporarily waiting for 2 mins
+                time.sleep(120)
+
+                print(f"[DEBUG] Start Time : {start_time}")
+                print(f"[DEBUG] End Time : {end_time}")
+
+                band_steer.stop_cx(station_list=sta_list)
+
+                # -------------------- Validate Steering --------------------
+                after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
+                after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
+                after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+
+                # -------------------- Stop Sniffer --------------------
+                try:
+                    local_pcap = band_steer.stop_sniffer()
+                    with open(local_pcap, "rb") as f:
+                        allure.attach(
+                            f.read(),
+                            name="Band Steering Sniffer Capture",
+                            attachment_type=allure.attachment_type.PCAP
+                        )
+                except Exception as e:
+                    print("Allure attach failed:", e)
+
+                stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
+
+                test_results = {}
+                after_state = {}
+                for sta in sorted(stations):
+                    test_results[sta] = {
+                        "before_bssid": before_bssid.get(sta),
+                        "before_channel": before_chan.get(sta),
+                        "before_rssi": before_rssi.get(sta),
+                        "after_bssid": after_bssid.get(sta),
+                        "after_channel": after_chan.get(sta),
+                        "after_rssi": after_rssi.get(sta)
+                    }
+
+
+
+                for sta in sta_list_2 :
+                    after_state[sta] = {
+                        "bssid": after_bssid.get(sta),
+                        "channel": after_chan.get(sta),
+                        "rssi": after_rssi.get(sta)
+                    }
+
+                print(f"[DEBUG] After Steer Station Info {after_state}")
+                allure.attach(
+                    body=json.dumps(after_state, indent=4),
+                    name="After Band Steering Station BSSID & Channel",
+                    attachment_type=allure.attachment_type.JSON
+                )
+                allure.attach(
+                    body=json.dumps(test_results, indent=4),
+                    name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                    attachment_type=allure.attachment_type.JSON
+                )
+
+                for _, result in test_results.items():
+                    before_bssid = result.get("before_bssid")
+                    after_bssid = result.get("after_bssid")
+                    before_channel = result.get("before_channel")
+                    after_channel = result.get("after_channel")
+                    before_rssi = result.get("before_rssi")
+                    after_rssi = result.get("after_rssi")
+
+                    if before_bssid == after_bssid or before_channel == after_channel:
+                        return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+
+                print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+                # Attach the station-radio mapping to allure for debugging
+                allure.attach(
+                    body=json.dumps(station_radio_map, indent=4),
+                    name="Station-Radio Mapping",
+                    attachment_type=allure.attachment_type.JSON
+                )
+                # Collect supplicant logs for each radio
+                for radio, stations in station_radio_map.items():
+                    if stations:
+                        print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                        self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+                return 'PASS', test_results
+
+            else:
+                return 'FAIL', 'Stations are not Pinging Each other'
+
 
     def band_steering_test(self, ssid="[BLANK]", passkey="[BLANK]", security="wpa2", mode="BRIDGE", band="twog",
                            num_sta=None, scan_ssid=True, client_type=0, pre_cleanup=True,
