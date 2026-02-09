@@ -897,6 +897,7 @@ class BandSteer(Realm):
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
                                                 identity = "user",
+                                                eap="TTLS",
                                                 passwd = "password",
                                                 )
         if sta_type == "11r":
@@ -1429,8 +1430,8 @@ class BandSteer(Realm):
                 print("some problem with monitor not being up")
         else:
             # Creation of Dummy stations for mtk 7996 radios
-            # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
-            # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
+            self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
+            self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
 
             self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="2437",
