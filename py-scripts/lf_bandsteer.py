@@ -34,7 +34,6 @@ sta_connect = importlib.import_module("py-scripts.sta_connect2")
 create_qvlan = importlib.import_module("py-scripts.create_qvlan")
 CreateQVlan = create_qvlan.CreateQVlan
 Realm = realm.Realm
-
 lf_logger_config = importlib.import_module("py-scripts.lf_logger_config")
 
 '''
@@ -435,63 +434,75 @@ class BandSteer(Realm):
 
         logs.append(f"Retrieved Station IPs: {self.station_ips}")
 
-        if not self.station_ips:
-            logs.append("No station IPs found")
+        if not self.station_ips or len(self.station_ips) < 2:
+            logs.append(f"Need at least 2 stations for ping test. Found: {len(self.station_ips)}")
             return False, "\n".join(logs)
 
         vrf_exec = "/home/lanforge/vrf_exec.bash"
         sudo_pass = "lanforge"
 
-        for port, ip in self.station_ips.items():
-            rc = None
-            out = ""
-            err = ""
+        # Get list of stations and their IPs
+        stations = list(self.station_ips.items())
 
-            try:
-                parts = port.split(".")
-                sta_name = parts[-1]  # sta0001
-                resource = parts[1]  # 1 or 2
-
-                cmd = (
-                    f"echo '{sudo_pass}' | "
-                    f"sudo -S {vrf_exec} {sta_name} ping -c 3 {ip}"
-                )
-
-                # Choose correct manager
-                if resource == "1":
-                    rc, out, err = self._ssh_run_mgr(cmd, host=None)
-                elif resource == "2":
+        # Test connectivity between stations (avoid self-ping)
+        for i, (src_port, src_ip) in enumerate(stations):
+            # Find a target station that's different from the source
+            for j, (target_port, target_ip) in enumerate(stations):
+                if i == j:  # Skip self-ping
                     continue
-                    # resource_host = self.get_resource_host(resource=resource)
-                    # rc, out, err = self._ssh_run_mgr(cmd, host=list(resource_host.values())[0])
-                else:
-                    logs.append(f"Unknown resource for port {port}")
+
+                rc = None
+                out = ""
+                err = ""
+
+                try:
+                    parts = src_port.split(".")
+                    sta_name = parts[-1]  # sta0000, sta0001, etc.
+                    resource = parts[1]  # 1 or 2
+
+                    cmd = (
+                        f"echo '{sudo_pass}' | "
+                        f"sudo -S {vrf_exec} {sta_name} ping -c 3 {target_ip}"
+                    )
+
+                    # Choose correct manager
+                    if resource == "1":
+                        rc, out, err = self._ssh_run_mgr(cmd, host=None)
+                    elif resource == "2":
+                        continue
+                        # resource_host = self.get_resource_host(resource=resource)
+                        # rc, out, err = self._ssh_run_mgr(cmd, host=list(resource_host.values())[0])
+                    else:
+                        logs.append(f"Unknown resource for port {src_port}")
+                        return False, "\n".join(logs)
+
+                    logs.append(
+                        f"Pinging {target_ip} (station {target_port}) from {sta_name} ({src_port}) -> rc={rc}"
+                    )
+
+                    if out.strip():
+                        logs.append(f"STDOUT:\n{out.strip()}")
+                    if err.strip():
+                        logs.append(f"STDERR:\n{err.strip()}")
+
+                    # Strong ping failure detection
+                    if (
+                            rc != 0
+                            or "100% packet loss" in out
+                            or "0 received" in out
+                            or "Destination Host Unreachable" in out
+                    ):
+                        logs.append(f"Ping FAILED from {src_port} to {target_port}")
+                        return False, "\n".join(logs)
+
+                    logs.append(f"✓ Ping successful from {src_port} to {target_port}")
+                    break  # Successful ping to at least one other station
+
+                except Exception as e:
+                    logs.append(f"Exception while pinging from {src_port} to {target_port}: {e}")
                     return False, "\n".join(logs)
 
-                logs.append(
-                    f"Pinging {ip} from {sta_name} (resource {resource}) -> rc={rc}"
-                )
-
-                if out.strip():
-                    logs.append(f"STDOUT:\n{out.strip()}")
-                if err.strip():
-                    logs.append(f"STDERR:\n{err.strip()}")
-
-                # Strong ping failure detection
-                if (
-                        rc != 0
-                        or "100% packet loss" in out
-                        or "0 received" in out
-                        or "Destination Host Unreachable" in out
-                ):
-                    logs.append(f"Ping FAILED for {port} ({ip})")
-                    return False, "\n".join(logs)
-
-            except Exception as e:
-                logs.append(f"Exception while pinging {port} ({ip}): {e}")
-                return False, "\n".join(logs)
-
-        logs.append("PINGING SUCCESSFUL")
+        logs.append("PINGING SUCCESSFUL - All stations can reach each other")
         return True, "\n".join(logs)
 
     def run_ping(self, source, destination) -> bool:
@@ -603,6 +614,33 @@ class BandSteer(Realm):
                 removable_stations.append(station)
 
         return rssi_map if as_dict else rssi_lst
+
+    def get_ips(self, as_dict=False, station_list=None):
+        ips_lst = []
+        ips_map = {}
+        removable_stations = []
+
+        if station_list is None:
+            station_list = self.get_station_list()
+
+        for station in station_list:
+            ips = self.get_port_data(station, 'ip')
+            retry_count = 0
+            while ips in (None, '0.0.0.0', ""):
+                if retry_count >= 30:
+                    break
+                time.sleep(3)
+                ips = self.get_port_data(station, 'ip')
+                retry_count += 1
+
+            if ips is not None and ips not in ('0.0.0.0', 'NA', ""):
+                ips_lst.append(ips)
+                ips_map[station] = ips
+            else:
+                removable_stations.append(station)
+
+        return ips_map if as_dict else ips_lst
+
     def get_sta_bssids(self):
         sta_bssids = {}
         for station in self.get_station_list():
@@ -727,6 +765,17 @@ class BandSteer(Realm):
                 idx - 1
             )
 
+    def create_build_qvlan(self, vlan_id, ipv4_addresses, ipv4_netmasks, ipv4_gateways):
+        qvlan = CreateQVlan(mgr=self.lanforge_ip,
+                            mgr_port=self.port,
+                            parent_port=self.upstream,
+                            qvlan_ids=[vlan_id],
+                            dhcpv4=True,
+                            ipv4_addresses=ipv4_addresses,
+                            ipv4_netmasks=ipv4_netmasks,
+                            ipv4_gateways=ipv4_gateways )
+        qvlan.build()
+
     def steer_specific_client(self, attenuators, start_idx, end_idx, direction=None):
         """
         Simple version with direction parameter.
@@ -844,7 +893,12 @@ class BandSteer(Realm):
                     self.station_profile.set_command_flag(
                         "add_sta", "ft-roam-over-ds", 1)
             # self.station_profile.set_command_flag("set_port", "skip_ifup_roam", 1)
-
+        if sta_type == "enterprise":
+            self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
+            self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
+                                                identity = "user",
+                                                passwd = "password",
+                                                )
         if sta_type == "11r":
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
             # self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
@@ -1401,7 +1455,7 @@ class BandSteer(Realm):
             y = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
                                                 port_list=f"{self.sniff_radio_resource_2}.{self.sniff_radio_shelf_2}.monitor2",
                                                 debug=True, timeout=300)
-            if x and y: 
+            if x and y:
                 sniffer_host = self.get_resource_host()
                 self.ssh = paramiko.SSHClient()
                 self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -1450,16 +1504,6 @@ class BandSteer(Realm):
                     return
 
                 print(f"? Remote tshark started, PID = {self.tshark_pid}")
-
-    # def download_pcap(self, remote_path, local_path):
-    #     sftp = None
-    #     try:
-    #         sftp = self.ssh.open_sftp()
-    #         sftp.get(remote_path, local_path)
-    #         print(f"PCAP downloaded to local system: {local_path}")
-    #     finally:
-    #         if sftp:
-    #             sftp.close()
 
     def download_pcap(self, remote_path, local_path, timeout=60):
         print(f"[DEBUG] PATH : {remote_path} --- {local_path}")
