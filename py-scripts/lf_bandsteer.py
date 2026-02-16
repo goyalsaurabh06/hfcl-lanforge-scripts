@@ -139,6 +139,9 @@ class BandSteer(Realm):
         self.traffic_data = dict()
         self.station_ips = dict()
 
+        # initiating gen cx profile for Ping
+        self.generic_endps_profile = self.new_generic_endp_profile()
+
         # reporting variable
         # self.band_steer_data = {}
         # self.bssid_based_totals = {}
@@ -204,6 +207,135 @@ class BandSteer(Realm):
                 self.cx_profile.create(endp_type=traffic_type,
                                        side_a=station_list,
                                        side_b=self.upstream if upstream is None else upstream)
+
+    def _expand_ping_lists(self, src_list, dst_list):
+        """
+        Returns aligned source and destination lists
+        Skips self-ping
+        """
+
+        expanded_src = []
+        expanded_dst = []
+
+        for src in src_list:
+            for dst in dst_list:
+                if src == dst:
+                    continue
+
+                expanded_src.append(src)
+                expanded_dst.append(self.change_port_to_ip(dst))
+
+        return expanded_src, expanded_dst
+
+    def run_generic_ping(
+            self,
+            src_list,
+            dst_list,
+            mode="once",
+            count=5,
+            interval=1,
+            tag="ping"
+    ):
+
+        expanded_src, expanded_dst = self._expand_ping_lists(src_list, dst_list)
+
+        if not expanded_src:
+            raise ValueError("No valid ping combinations generated")
+
+        self.generic_endps_profile.type = "lfping"
+        self.generic_endps_profile.interval = interval
+        self.generic_endps_profile.name_prefix = f"gen_{tag}"
+
+        if mode == "once":
+            self.generic_endps_profile.loop_count = count
+        else:
+            self.generic_endps_profile.loop_count = -1
+
+        # SINGLE CALL
+        self.generic_endps_profile.create_gen(
+            sta_port=expanded_src,
+            dest=expanded_dst,
+            add=f"_{tag}"
+        )
+
+        self.generic_endps_profile.start_cx()
+
+        if mode == "once":
+            time.sleep(count * interval + 3)
+            self.generic_endps_profile.stop_cx()
+
+            status, data = self._evaluate_generic_ping()
+            self.generic_endps_profile.cleanup()
+            return status, data
+
+        return True, {}
+
+    def stop_generic_ping(self):
+        if not hasattr(self, "gen_ping"):
+            return True
+
+        self.gen_ping.stop_cx()
+        time.sleep(2)
+
+        result = self._evaluate_generic_ping()
+        self.gen_ping.cleanup()
+
+        return result
+
+    def _evaluate_generic_ping(self):
+        """
+        Returns:
+            overall_status (bool)
+            results (dict): key = "SRC -> DST", value = {
+                endpoint,
+                raw,
+                status
+            }
+        """
+        response = self.json_get(
+            "generic/list?fields=name,last+results"
+        )
+
+        results = {}
+        overall_status = True
+
+        for ep in response.get("endpoints", []):
+            for _, data in ep.items():
+                endp_name = data.get("name", "")
+                raw = data.get("last results", "")
+
+                # Extract src / dst from endpoint name
+                src = "unknown-src"
+                dst = "unknown-dst"
+
+                if "_to_" in endp_name:
+                    try:
+                        left, right = endp_name.split("_to_", 1)
+                        src = left.split("_")[-1]
+                        dst = right
+                    except Exception:
+                        pass
+
+                key = f"{src}->{dst}"
+
+                # Determine ping status
+                status = not (
+                        not raw
+                        or "Unreachable" in raw
+                        or "100%" in raw
+                        or "0 received" in raw
+                )
+
+                if not status:
+                    overall_status = False
+
+                results[key] = {
+                    "endpoint": endp_name,
+                    "raw": raw,
+                    "status": status
+                }
+
+        return overall_status, results
 
     def start_cx(self):
         print("Monitoring started in a separate thread.")
@@ -896,9 +1028,9 @@ class BandSteer(Realm):
         if sta_type == "enterprise":
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
-                                                identity = "user",
+                                                identity = "testuser",
                                                 eap="TTLS",
-                                                passwd = "password",
+                                                passwd = "testpasswd",
                                                 )
         if sta_type == "11r":
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
@@ -1132,6 +1264,53 @@ class BandSteer(Realm):
             logging.info(f"Upstream port IP {upstream_port}")
 
         return upstream_port
+
+    def roam_test_standard(self, attenuator=None, inc_modules=None, dec_modules=None):
+        start_time = datetime.now()
+
+        # Initialize values
+        inc_value = 0
+        dec_value = self.max_attenuation
+
+        # If both None → nothing to do
+        if not inc_modules and not dec_modules:
+            logging.warning("No increment or decrement modules provided.")
+            return start_time, start_time
+
+        while True:
+            stop_inc = True
+            stop_dec = True
+
+            if inc_modules and inc_value <= self.max_attenuation:
+                for idx in inc_modules:
+                    self.set_atten_idx(attenuator, inc_value, idx - 1)
+                stop_inc = False
+
+            if dec_modules and dec_value >= 0:
+                for idx in dec_modules:
+                    self.set_atten_idx(attenuator, dec_value, idx - 1)
+                stop_dec = False
+
+            logging.info(
+                f"INC={inc_value if inc_modules else 'NA'} | "
+                f"DEC={dec_value if dec_modules else 'NA'} | "
+                f"Waiting {self.wait_time}s"
+            )
+
+            time.sleep(self.wait_time)
+
+            # Update values
+            if inc_modules:
+                inc_value += self.step
+            if dec_modules:
+                dec_value -= self.step
+
+            # Exit condition
+            if stop_inc and stop_dec:
+                break
+
+        end_time = datetime.now()
+        return start_time, end_time
 
     def start_band_steer_test_standard(self, attenuator=None, modules=None, steer='twog'):
 
@@ -1430,8 +1609,8 @@ class BandSteer(Realm):
                 print("some problem with monitor not being up")
         else:
             # Creation of Dummy stations for mtk 7996 radios
-            self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
-            self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
+            # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
+            # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
 
             self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="2437",
