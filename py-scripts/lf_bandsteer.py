@@ -242,22 +242,29 @@ class BandSteer(Realm):
         if not expanded_src:
             raise ValueError("No valid ping combinations generated")
 
-        self.generic_endps_profile.type = "lfping"
-        self.generic_endps_profile.interval = interval
+        # Configure profile
+        self.generic_endps_profile.type = "generic"
         self.generic_endps_profile.name_prefix = f"gen_{tag}"
 
-        if mode == "once":
-            self.generic_endps_profile.loop_count = count
-        else:
-            self.generic_endps_profile.loop_count = -1
+        # Create endpoints only once
+        self.generic_endps_profile.create(ports=expanded_src)
 
-        # SINGLE CALL
-        self.generic_endps_profile.create_gen(
-            sta_port=expanded_src,
-            dest=expanded_dst,
-            add=f"_{tag}"
-        )
+        # Assign proper ping command per endpoint
+        for idx, endp_name in enumerate(self.generic_endps_profile.created_endp):
 
+            dst_ip = expanded_dst[idx]
+
+            if mode == "once":
+                cmd = f"ping -c {count} -i {interval} {dst_ip}"
+            else:
+                cmd = f"ping -i {interval} {dst_ip}"
+
+            self.generic_endps_profile.set_cmd(
+                endp_name,
+                cmd=cmd
+            )
+
+        # Start CX
         self.generic_endps_profile.start_cx()
 
         if mode == "once":
@@ -271,16 +278,17 @@ class BandSteer(Realm):
         return True, {}
 
     def stop_generic_ping(self):
-        if not hasattr(self, "gen_ping"):
-            return True
 
-        self.gen_ping.stop_cx()
+        if not hasattr(self, "generic_endps_profile"):
+            return True, {}
+
+        self.generic_endps_profile.stop_cx()
         time.sleep(2)
 
-        result = self._evaluate_generic_ping()
-        self.gen_ping.cleanup()
+        status, data = self._evaluate_generic_ping()
+        self.generic_endps_profile.cleanup()
 
-        return result
+        return status, data
 
     def _evaluate_generic_ping(self):
         """
