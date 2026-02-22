@@ -738,7 +738,7 @@ class BandSteer(Realm):
             station_list = self.get_station_list()
 
         for station in station_list:
-            rssi = self.get_port_data(station, 'signal ')
+            rssi = self.get_port_data(station, 'signal')
             retry_count = 0
             while rssi in (None, 'NA', "", 'null'):
                 if retry_count >= 30:
