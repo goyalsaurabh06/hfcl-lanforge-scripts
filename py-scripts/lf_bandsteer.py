@@ -1555,6 +1555,36 @@ class BandSteer(Realm):
         del response
         return mac_list
 
+    def get_atten_info(self):
+        atten_info = {}
+        response = super().json_get('/atten/all')
+
+        if not response:
+            return atten_info
+
+        # Case 1: Multiple attenuators
+        if 'attenuators' in response:
+            atten_list = response['attenuators']
+
+        # Case 2: Single attenuator
+        elif 'attenuator' in response:
+            atten_list = [response['attenuator']]
+
+        else:
+            return atten_info
+
+        for atten in atten_list:
+            for serial, values in atten.items():
+
+                modules = {}
+                for i in range(1, 9):
+                    modules[f"module_{i}"] = values.get(f"module {i}", "")
+
+                atten_info[serial] = modules
+
+        del response
+        return atten_info
+
     def _ssh_run(self, cmd, timeout=30):
         """Run a command over SSH and return (rc, stdout, stderr)."""
         stdin, stdout, stderr = self.ssh.exec_command(cmd, timeout=timeout)
