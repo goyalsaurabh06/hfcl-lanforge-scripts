@@ -1139,6 +1139,18 @@ class lf_tests(lf_libs):
         # Initialize station-radio tracking dictionary at the beginning of the method
         station_radio_map = {}
 
+        def attach_attenuator_state(band_steer, title="Attenuator State"):
+            atten_info = band_steer.get_atten_info()
+
+            if not atten_info:
+                return
+
+            allure.attach(
+                body=json.dumps(atten_info, indent=4),
+                name=title,
+                attachment_type=allure.attachment_type.JSON
+            )
+
         def track_station_creation(radio, station_list):
             """Track which stations were created on which radio."""
             if radio not in station_radio_map:
@@ -1289,6 +1301,9 @@ class lf_tests(lf_libs):
                             f"Expected band: 5Ghz"
                         )
 
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
                 attenuator='1.1.3002', modules=[3, 4], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
@@ -1303,6 +1318,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -1584,6 +1602,9 @@ class lf_tests(lf_libs):
                 band_steer.create_specific_cx(station_list=sta_list_1)
                 band_steer.start_cx()
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
                 # -------------------- Trigger Steering --------------------
                 # Here in both cases need to move clients towards AP so steering fiveg is prefered
                 start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -1603,6 +1624,9 @@ class lf_tests(lf_libs):
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
                 after_state = {}
+
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 print(f"[DEBUG] Stopping TCP Traffic on station {sta_list_1}")
                 band_steer.stop_specific_cx(station_list=sta_list_1)
@@ -1890,6 +1914,9 @@ class lf_tests(lf_libs):
                 band_steer.create_specific_cx(station_list=sta_list)
                 band_steer.start_cx()
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
                     attenuator='1.1.3009', modules=[1, 2], steer='fiveg')
@@ -1906,6 +1933,9 @@ class lf_tests(lf_libs):
                 after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
                 after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 # -------------------- Stop Sniffer --------------------
                 local_pcap = band_steer.stop_sniffer()
@@ -2192,6 +2222,9 @@ class lf_tests(lf_libs):
                 band_steer.create_cx(traffic_type="lf_tcp")
                 band_steer.start_cx()
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
                     attenuator='1.1.3009', modules=[1, 2], steer='fiveg')
@@ -2214,6 +2247,9 @@ class lf_tests(lf_libs):
                 after_bssid = band_steer.get_bssids(as_dict=True, station_list=[sta_list_1[-1]] + sta_list_3)
                 after_chan = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]] + sta_list_3)
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]] + sta_list_3)
+
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 try:
                     # -------------------- Stop Sniffer --------------------
@@ -2477,10 +2513,17 @@ class lf_tests(lf_libs):
                 if failed_stas:
                     pytest.fail(f"[FAILED] STA3 is not Pinging. \n")
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title=f"Attenuator State - Before Steering Iteration {iteration}")
+
+                # -------------------- Attenuation Change --------------------
                 band_steer.start_band_steer_test_standard(
                     attenuator="1.1.3009", modules=[1, 2], steer="fiveg"
                 )
                 time.sleep(120)
+
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title=f"Attenuator State - After Steering Iteartino {iteration}")
 
                 # ---------- VERIFY STA2 STEERED TO 5G ----------
                 sta2 = sta_list_2[0]
@@ -2779,6 +2822,8 @@ class lf_tests(lf_libs):
                     if failed_stas:
                         pytest.fail(f"[FAILED] STA3 is not Pinging. \n")
 
+                    # -------------------- Attenuator State --------------------
+                    self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                     # ========== STEP 7: Move STA2 Close to AP (Strong 5GHz Signal) ==========
                     print(f"\n[Iteration {iteration}] Step 7: Moving STA2 close to AP...")
@@ -2805,6 +2850,9 @@ class lf_tests(lf_libs):
                     #             f"Observed band: 2.4Ghz  (Channel {ch}) \n"
                     #             f"Expected band: 5Ghz"
                     #         )
+
+                    # -------------------- Attenuator State --------------------
+                    self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                     # ========== STEP 8: Stop Traffic to STA2 ==========
                     print(f"\n[Iteration {iteration}] Step 8: Stopping traffic to STA2...")
@@ -3082,6 +3130,9 @@ class lf_tests(lf_libs):
             before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
             # ---------- VERIFY INITIAL BANDS ----------
             before_chan_5g = band_steer.get_channel(as_dict=True, station_list=sta_list)
             for sta, ch in before_chan_5g.items():
@@ -3192,6 +3243,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
             after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
             after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
 
@@ -3468,6 +3522,9 @@ class lf_tests(lf_libs):
                             f"Expected band: 5Ghz"
                         )
 
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
                 attenuator='1.1.3009', modules=[1, 2],
@@ -3484,6 +3541,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -3771,6 +3831,9 @@ class lf_tests(lf_libs):
             if ping_status:
                 return 'FAIL', 'Stations Pinging Each other even Client isolation is enabled.'
 
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
                 attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
@@ -3785,6 +3848,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list_2)
             after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
             after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -4032,6 +4098,9 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Ping status and logs {ping_status} {ping_logs}")
             if ping_status:
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
                     attenuator='1.1.3009', modules=[1, 2], steer='twog')
@@ -4061,6 +4130,9 @@ class lf_tests(lf_libs):
                 after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list_2)
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
+                # -------------------- Attenuator State --------------------
+                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+
                 # -------------------- Stop Sniffer --------------------
                 try:
                     local_pcap = band_steer.stop_sniffer()
@@ -4086,9 +4158,6 @@ class lf_tests(lf_libs):
                         "after_channel": after_chan.get(sta),
                         "after_rssi": after_rssi.get(sta)
                     }
-
-
-
                 for sta in sta_list_2 :
                     after_state[sta] = {
                         "bssid": after_bssid.get(sta),
@@ -4137,6 +4206,240 @@ class lf_tests(lf_libs):
 
             else:
                 return 'FAIL', 'Stations are not Pinging Each other'
+
+        elif test_type == "management_vlan":
+            """
+                Test Cases TC_BS_17
+            """
+            band_steer = BandSteer(
+                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
+                port=get_testbed_details.get("port", 8080),
+                ssid=ssid,
+                security=security,
+                password=passkey,
+                num_sta=num_sta,
+                test_type=test_type,
+                steer_type=steer_type,
+                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
+                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
+                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                set_max_attenuators=test_config.get("set_max_attenuators", None),
+                step=test_config.get("step", 5),
+                max_attenuation=test_config.get("max_attenuation", 45), # Try connecting Far from AP for standard testcase
+                wait_time=test_config.get("wait_time", 10),
+                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
+                initial_band_pref="5GHz"
+            )
+            # -------------------- Management VLAN Creation --------------------
+            vlan_id = 200
+            self.add_vlan(vlan_ids=[vlan_id], build=True)
+
+            # -------------------- Management VLAN AP config --------------------
+            dut = get_target_object
+            idx = 0
+            vlan_id = get_testbed_details["device_under_tests"][idx]["management_vlan"]
+
+            dut.dut_library_object.attach_network_snapshot(idx, "Before DHCP VLAN")
+
+            resp = dut.uprofile_utility_object.push_wan_dhcp_with_management_vlan(get_testbed_details, idx)
+            if resp.status_code != 200:
+                pytest.fail("Push failed")
+            logging.info("Wait for 120 sec")
+            time.sleep(120)
+
+            dut.dut_library_object.attach_network_snapshot(idx, "After DHCP VLAN")
+            dut.dut_library_object.validate_dhcp_with_management_vlan(idx, vlan_id)
+
+            # -------------------- STA Creation --------------------
+            sta_list = band_steer.get_sta_list_before_creation(
+                num_sta=num_sta,
+                radio=dict_all_radios_5g["mtk_radios"][0])
+            print(f"[DEBUG] Station List: {sta_list}")
+
+            # Clean up if there are already existing station with same name
+            band_steer.pre_cleanup(sta_list)
+
+            band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
+
+            # -------------------- Start Sniffer --------------------
+            band_steer.start_sniffer(ssid=ssid,
+                                     password=passkey,
+                                     security=security)
+
+            # -------------------- Initial Conditions --------------------
+            for idx in range(3, 5):
+                band_steer.set_atten('1.1.3002', 0, idx - 1)
+                band_steer.set_atten('1.1.3002', 950, idx - 3)
+                band_steer.set_atten('1.1.3009', 950, idx - 3)
+
+            band_steer.create_clients(
+                radio=band_steer.station_radio,
+                ssid=ssid,
+                passwd=passkey,
+                security=security,
+                station_list=sta_list,
+                station_flag="use-bss-transition",
+                sta_type="normal",
+                initial_band_pref="5GHz",
+                option=None
+            )
+
+            # -------------------- Validate Initial Band --------------------
+            # Attach Station IP map to allure report
+            band_steer.get_station_ips()
+
+            ip_text = ""
+            for station, ip in band_steer.station_ips.items():
+                ip_text += f"{station} : {ip}\n"
+
+            allure.attach(
+                ip_text,
+                name="Station IPs",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
+            print(f"\nStarting band steering test...")
+            before_bssid = band_steer.get_bssids(as_dict=True)
+            before_chan = band_steer.get_channel(as_dict=True)
+            before_rssi = band_steer.get_rssi(as_dict=True)
+            before_state = {}
+
+            for sta in sta_list:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info")
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for sta, ch in before_chan.items():
+                ch = int(ch)
+                if band_steer.steer_type == 'steer_fiveg':
+                    # Expected: STA creation on band 2.4 GHz
+                    if ch is None or ch not in range(1, 15):
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
+                            f"Observed band: 5Ghz  (Channel {ch}) \n"
+                            f"Expected band: 2.4Ghz"
+                        )
+
+                elif band_steer.steer_type == 'steer_twog':
+                    # Expected: STA creation on band 5 GHz
+                    if ch is None or ch < 36:
+                        pytest.fail(
+                            f"[FAILED] {sta} is not on 5 GHz before steering. \n"
+                            f"Observed band: 2.4Ghz  (Channel {ch}) \n"
+                            f"Expected band: 5Ghz"
+                        )
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+
+            # -------------------- Trigger Steering --------------------
+            start_time, end_time = band_steer.start_band_steer_test_standard(
+                attenuator='1.1.3002', modules=[3, 4], steer='twog')
+
+            # temporarily waiting for 2 mins
+            time.sleep(120)
+
+            print(f"[DEBUG] Start Time : {start_time}")
+            print(f"[DEBUG] End Time : {end_time}")
+
+            # -------------------- Validate Steering --------------------
+            after_bssid = band_steer.get_bssids(as_dict=True)
+            after_chan = band_steer.get_channel(as_dict=True)
+            after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+
+            # -------------------- Stop Sniffer --------------------
+            local_pcap = band_steer.stop_sniffer()
+
+            try:
+                with open(local_pcap, "rb") as f:
+                    allure.attach(
+                        f.read(),
+                        name="Band Steering Sniffer Capture",
+                        attachment_type=allure.attachment_type.PCAP
+                    )
+            except Exception as e:
+                print("Allure attach failed:", e)
+
+            stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
+
+            test_results = {}
+            after_state = {}
+
+            for sta in sorted(stations):
+                test_results[sta] = {
+                    "before_bssid": before_bssid.get(sta),
+                    "before_channel": before_chan.get(sta),
+                    "before_rssi": before_rssi.get(sta),
+                    "after_bssid": after_bssid.get(sta),
+                    "after_channel": after_chan.get(sta),
+                    "after_rssi": after_rssi.get(sta)
+                }
+
+            for sta in sta_list:
+                after_state[sta] = {
+                    "bssid": after_bssid.get(sta),
+                    "channel": after_chan.get(sta),
+                    "rssi": after_rssi.get(sta)
+                }
+
+            allure.attach(
+                body=json.dumps(after_state, indent=4),
+                name="After Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+            allure.attach(
+                body=json.dumps(test_results, indent=4),
+                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            for _, result in test_results.items():
+                before_bssid = result.get("before_bssid")
+                after_bssid = result.get("after_bssid")
+                before_channel = result.get("before_channel")
+                after_channel = result.get("after_channel")
+                before_rssi = result.get("before_rssi")
+                after_rssi = result.get("after_rssi")
+
+                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+
+                if before_bssid == after_bssid or before_channel == after_channel:
+                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+
+            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+
+            # Attach the station-radio mapping to allure for debugging
+            allure.attach(
+                body=json.dumps(station_radio_map, indent=4),
+                name="Station-Radio Mapping",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+            return 'PASS', test_results
 
     def run_roam_test(
             self,
