@@ -1185,6 +1185,9 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # -------------------- STA Creation --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -1302,7 +1305,7 @@ class lf_tests(lf_libs):
                         )
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -1320,7 +1323,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -1443,6 +1446,10 @@ class lf_tests(lf_libs):
                 initial_band_pref="5GHz",
                 traffic="download"
             )
+
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # -------------------- STA Creation --------------------
             sta_list_1 = band_steer.get_sta_list_before_creation(
@@ -1603,7 +1610,7 @@ class lf_tests(lf_libs):
                 band_steer.start_cx()
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                 # -------------------- Trigger Steering --------------------
                 # Here in both cases need to move clients towards AP so steering fiveg is prefered
@@ -1626,7 +1633,7 @@ class lf_tests(lf_libs):
                 after_state = {}
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 print(f"[DEBUG] Stopping TCP Traffic on station {sta_list_1}")
                 band_steer.stop_specific_cx(station_list=sta_list_1)
@@ -1757,6 +1764,10 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # -------------------- STA Creation --------------------
             sta_list_1 = band_steer.get_sta_list_before_creation(
@@ -1915,7 +1926,7 @@ class lf_tests(lf_libs):
                 band_steer.start_cx()
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -1935,7 +1946,7 @@ class lf_tests(lf_libs):
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 # -------------------- Stop Sniffer --------------------
                 local_pcap = band_steer.stop_sniffer()
@@ -2078,6 +2089,10 @@ class lf_tests(lf_libs):
                                      security=security)
 
             get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
+
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # -------------------- STA Creation --------------------
             # Connection of 2 clients to 2Ghz band as per test case
@@ -2223,7 +2238,7 @@ class lf_tests(lf_libs):
                 band_steer.start_cx()
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -2249,7 +2264,7 @@ class lf_tests(lf_libs):
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]] + sta_list_3)
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 try:
                     # -------------------- Stop Sniffer --------------------
@@ -2394,6 +2409,10 @@ class lf_tests(lf_libs):
                 iteration_results[key]["status"] = "FAIL"
                 iteration_results[key]["reasons"].append(reason)
 
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
+
             # -------------------- ITERATIONS --------------------
             for iteration in range(1, 6):
                 print(f"\n===== ITERATION {iteration} START =====")
@@ -2514,7 +2533,7 @@ class lf_tests(lf_libs):
                     pytest.fail(f"[FAILED] STA3 is not Pinging. \n")
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title=f"Attenuator State - Before Steering Iteration {iteration}")
+                attach_attenuator_state(band_steer, title=f"Attenuator State - Before Steering Iteration {iteration}")
 
                 # -------------------- Attenuation Change --------------------
                 band_steer.start_band_steer_test_standard(
@@ -2523,7 +2542,7 @@ class lf_tests(lf_libs):
                 time.sleep(120)
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title=f"Attenuator State - After Steering Iteartino {iteration}")
+                attach_attenuator_state(band_steer, title=f"Attenuator State - After Steering Iteartino {iteration}")
 
                 # ---------- VERIFY STA2 STEERED TO 5G ----------
                 sta2 = sta_list_2[0]
@@ -2650,6 +2669,9 @@ class lf_tests(lf_libs):
                 initial_band_pref="5GHz"
             )
 
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # ---------- Initial Attenuation ----------
             for idx in range(3, 5):
@@ -2823,7 +2845,7 @@ class lf_tests(lf_libs):
                         pytest.fail(f"[FAILED] STA3 is not Pinging. \n")
 
                     # -------------------- Attenuator State --------------------
-                    self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+                    attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                     # ========== STEP 7: Move STA2 Close to AP (Strong 5GHz Signal) ==========
                     print(f"\n[Iteration {iteration}] Step 7: Moving STA2 close to AP...")
@@ -2852,7 +2874,7 @@ class lf_tests(lf_libs):
                     #         )
 
                     # -------------------- Attenuator State --------------------
-                    self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+                    attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                     # ========== STEP 8: Stop Traffic to STA2 ==========
                     print(f"\n[Iteration {iteration}] Step 8: Stopping traffic to STA2...")
@@ -3060,6 +3082,10 @@ class lf_tests(lf_libs):
                 band_steer.set_atten("1.1.3002", 0, idx - 1)
                 band_steer.set_atten("1.1.3002", 0, idx - 3)
 
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
+
             # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
             band_steer.start_sniffer(ssid=ssid,
                                      password=passkey,
@@ -3131,7 +3157,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # ---------- VERIFY INITIAL BANDS ----------
             before_chan_5g = band_steer.get_channel(as_dict=True, station_list=sta_list)
@@ -3245,7 +3271,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
 
@@ -3406,6 +3432,10 @@ class lf_tests(lf_libs):
             vlan_id = 100
             self.add_vlan(vlan_ids=[vlan_id], build=True)
 
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
+
             # -------------------- STA Creation --------------------
             sta_list = band_steer.get_sta_list_before_creation(
                 num_sta=num_sta,
@@ -3523,7 +3553,7 @@ class lf_tests(lf_libs):
                         )
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -3543,7 +3573,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -3652,6 +3682,10 @@ class lf_tests(lf_libs):
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
             self.add_vlan(vlan_ids=[vlan_id], build=True)
+
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # -------------------- Initial Attenuation --------------------
             for idx in range(3, 5):
@@ -3832,7 +3866,7 @@ class lf_tests(lf_libs):
                 return 'FAIL', 'Stations Pinging Each other even Client isolation is enabled.'
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -3850,7 +3884,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -3983,6 +4017,10 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 200, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
+            # -------------------- SSID Scan results --------------------
+            data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
+            logging.info("ssid scan data: " + str(data_scan_ssid))
+
             # -------------------- Start Sniffer --------------------
             # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
             band_steer.start_sniffer(ssid=ssid,
@@ -4099,7 +4137,7 @@ class lf_tests(lf_libs):
             if ping_status:
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -4131,7 +4169,7 @@ class lf_tests(lf_libs):
                 after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
                 # -------------------- Attenuator State --------------------
-                self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+                attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
                 # -------------------- Stop Sniffer --------------------
                 try:
@@ -4345,7 +4383,7 @@ class lf_tests(lf_libs):
                         )
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -4363,7 +4401,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Attenuator State --------------------
-            self.attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
