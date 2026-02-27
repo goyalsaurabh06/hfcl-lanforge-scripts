@@ -13,6 +13,7 @@ import threading
 import importlib
 import subprocess
 import platform
+from itertools import combinations
 from datetime import datetime
 # from lf_report import lf_report
 import plotly.graph_objs as go
@@ -129,16 +130,17 @@ class BandSteer(Realm):
         self.disable_restart_dhcp = disable_restart_dhcp
         self.custom_wifi_cmd = custom_wifi_cmd
         self.station_profile = self.new_station_profile()
-        self.stop_traffic_thread = threading.Event()
-        self.traffic_thread = None
+        # self.stop_traffic_thread = threading.Event()
+        # self.traffic_thread = None
 
         # Band Steering variables
         self.test_type = test_type
         self.steer_type = steer_type
         self.initial_band_pref = initial_band_pref
-        self.traffic_data = dict()
+        # self.traffic_data = dict()
         self.station_ips = dict()
-
+        self.ping_cx_profile = None
+        self.traffic_cx_profile = None
         # initiating gen cx profile for Ping
         self.generic_endps_profile = self.new_generic_endp_profile()
 
@@ -169,44 +171,149 @@ class BandSteer(Realm):
         self.staConnect = sta_connect.StaConnect2(host=self.lanforge_ip, port=self.port, outfile="sta_connect2.csv")
         self.combined_sniff = bool(1 if (self.sniff_radio_1) and (self.sniff_radio_2) else 0)
 
-    def create_cx(self, traffic_type):
-        self.cx_profile = self.new_l3_cx_profile()
-        self.cx_profile.host = self.lanforge_ip
-        self.cx_profile.port = self.port
-
-        self.cx_profile.name_prefix = 'steer_DL_'
-        self.cx_profile.side_a_min_bps = 0
-        self.cx_profile.side_a_max_bps = 0
-        self.cx_profile.side_b_min_bps = 100_000_000
-        self.cx_profile.side_b_max_bps = 0
-
-        self.cx_profile.create(endp_type=traffic_type,
-                               side_a=self.station_list,
-                               side_b=self.upstream)
 
     def create_specific_cx(self, station_list, traffic_type='lf_tcp', upstream=None, pairs=0):
 
-        self.cx_profile = self.new_l3_cx_profile()
-        self.cx_profile.host = self.lanforge_ip
-        self.cx_profile.port = self.port
+        self.traffic_cx_profile = self.new_l3_cx_profile()
+        self.traffic_cx_profile.host = self.lanforge_ip
+        self.traffic_cx_profile.port = self.port
 
-        self.cx_profile.side_a_min_bps = 0
-        self.cx_profile.side_a_max_bps = 0
-        self.cx_profile.side_b_min_bps = 100_000_000
-        self.cx_profile.side_b_max_bps = 0
+        self.traffic_cx_profile.side_a_min_bps = 0
+        self.traffic_cx_profile.side_a_max_bps = 0
+        self.traffic_cx_profile.side_b_min_bps = 100_000_000
+        self.traffic_cx_profile.side_b_max_bps = 0
 
         if pairs == 0:
-            self.cx_profile.name_prefix = 'steer_DL_'
-
-            self.cx_profile.create(endp_type=traffic_type,
+            self.traffic_cx_profile.name_prefix = 'steer_DL_'
+            self.traffic_cx_profile.create(endp_type=traffic_type,
                                    side_a=station_list,
                                    side_b=self.upstream if upstream is None else upstream)
         else:
             for pair in range(1, int(pairs)+1):
-                self.cx_profile.name_prefix = f'steer_DL_{pair}_'
-                self.cx_profile.create(endp_type=traffic_type,
+                self.traffic_cx_profile.name_prefix = f'steer_DL_{pair}_'
+                self.traffic_cx_profile.create(endp_type=traffic_type,
                                        side_a=station_list,
                                        side_b=self.upstream if upstream is None else upstream)
+
+    def _start_profile(self, profile):
+
+        if not profile:
+            return
+
+        print(f"Starting profile: {profile.name_prefix}")
+
+        # Attach monitoring state to profile
+        profile.stop_event = threading.Event()
+        profile.stop_event.clear()
+        profile.traffic_data = {}
+
+        profile.thread = threading.Thread(
+            target=self._record_traffic_data,
+            args=(profile,),
+            daemon=True
+        )
+        profile.thread.start()
+
+        profile.start_cx()
+
+    def _stop_profile(self, profile):
+
+        if not profile:
+            return
+
+        print(f"Stopping profile: {profile.name_prefix}")
+
+        for name in profile.created_cx.keys():
+            self.json_post("/cli-json/set_cx_state", {
+                "test_mgr": "ALL",
+                "cx_name": name,
+                "cx_state": "STOPPED"
+            }, debug_=self.debug)
+
+        # Stop monitoring thread
+        if hasattr(profile, "stop_event"):
+            profile.stop_event.set()
+
+        if hasattr(profile, "thread") and profile.thread.is_alive():
+            profile.thread.join(timeout=5)
+
+        print(f"{profile.name_prefix} monitoring stopped")
+        time.sleep(2)
+
+    def _record_traffic_data(self, profile):
+
+        while not profile.stop_event.is_set():
+            response_json = dict(self.json_get('/cx/all/'))
+
+            for cx_name in profile.created_cx.keys():
+                if cx_name not in response_json:
+                    continue
+
+                traffic_details = response_json[cx_name]
+                dt = datetime.now()
+
+                profile.traffic_data.setdefault(cx_name, []).append({
+                    "timestamp": dt.strftime("%H:%M:%S"),
+                    "bps_rx_a": traffic_details.get("bps rx a"),
+                    "bps_rx_b": traffic_details.get("bps rx b"),
+                    "rx_drop_a": traffic_details.get("rx drop % a"),
+                    "rx_drop_b": traffic_details.get("rx drop % b"),
+                })
+
+            time.sleep(1)
+
+    def create_ping_cx(self, station_list, traffic_type='lf_tcp'):
+        self.ping_cx_profile = self.new_l3_cx_profile()
+        self.ping_cx_profile.host = self.lanforge_ip
+        self.ping_cx_profile.port = self.port
+
+        self.ping_cx_profile.side_a_min_bps = 0
+        self.ping_cx_profile.side_a_max_bps = 0
+        self.ping_cx_profile.side_b_min_bps = 56000
+        self.ping_cx_profile.side_b_max_bps = 0
+
+        self.ping_cx_profile.name_prefix = 'ping_'
+
+        for sta_a, sta_b in combinations(station_list, 2):
+            self.ping_cx_profile.create(
+                endp_type=traffic_type,
+                side_a=[sta_a],
+                side_b=sta_b
+            )
+
+        for sta in station_list:
+            self.ping_cx_profile.create(
+                endp_type=traffic_type,
+                side_a=[sta],
+                side_b=self.upstream
+            )
+
+    def check_connectivity(self, profile, min_bps=1):
+
+        if not hasattr(profile, "traffic_data"):
+            return False
+
+        if not profile.traffic_data:
+            return False
+
+        for cx_name, samples in profile.traffic_data.items():
+
+            if not samples:
+                return False
+
+            recent_samples = samples[-5:]
+
+            traffic_ok = any(
+                (sample.get("bps_rx_a", 0) or 0) > min_bps or
+                (sample.get("bps_rx_b", 0) or 0) > min_bps
+                for sample in recent_samples
+            )
+
+            if not traffic_ok:
+                print(f"[DEBUG] No traffic detected for {cx_name}")
+                return False
+
+        return True
 
     def _expand_ping_lists(self, src_list, dst_list):
         """
@@ -243,13 +350,14 @@ class BandSteer(Realm):
             raise ValueError("No valid ping combinations generated")
 
         # Configure profile
-        self.generic_endps_profile.type = "generic"
+        self.generic_endps_profile.type = "lfping"
         self.generic_endps_profile.name_prefix = f"gen_{tag}"
 
         # Create endpoints only once
         self.generic_endps_profile.create(ports=expanded_src)
 
         # Assign proper ping command per endpoint
+        print("Created Gen Endpoints", self.generic_endps_profile.created_endp)
         for idx, endp_name in enumerate(self.generic_endps_profile.created_endp):
 
             dst_ip = expanded_dst[idx]
@@ -259,11 +367,13 @@ class BandSteer(Realm):
             else:
                 cmd = f"ping -i {interval} {dst_ip}"
 
+            print("Command ping :", cmd)
             self.generic_endps_profile.set_cmd(
                 endp_name,
                 cmd=cmd
             )
 
+        time.sleep(3)
         # Start CX
         self.generic_endps_profile.start_cx()
 
@@ -345,57 +455,29 @@ class BandSteer(Realm):
 
         return overall_status, results
 
-    def start_cx(self):
-        print("Monitoring started in a separate thread.")
-        self.stop_traffic_thread.clear()
-        record_traffic_data = threading.Thread(target=self.record_traffic_data, daemon=True)
-        record_traffic_data.start()
-        self.cx_profile.start_cx()
+    def start_ping_cx(self):
+        self._start_profile(self.ping_cx_profile)
 
-    def start_specific_cx(self, station_list):
-        print("Starting CXs...")
-        for station in station_list:
-            sta_name = station.split('.')[-1]
-            for name in self.cx_profile.created_cx.keys():
-                if sta_name in name:
-                    print(f"Starting CX: {name}")
-                    self.json_post("/cli-json/set_cx_state", {
-                        "test_mgr": "default_tm",
-                        "cx_name": name,
-                        "cx_state": "RUNNING"
-                    }, debug_=self.debug)
-        time.sleep(2)
+    def stop_ping_cx(self):
+        self._stop_profile(self.ping_cx_profile)
 
-    def clean_cxs(self):
-        self.cx_profile.clean_cx_lists()
+    def start_traffic_cx(self):
+        self._start_profile(self.traffic_cx_profile)
 
-    def stop_cx(self):
-        print("Stopping CXs...")
+    def stop_traffic_cx(self):
+        self._stop_profile(self.traffic_cx_profile)
 
-        for name in self.cx_profile.created_cx.keys():
-            print(f"Stopping CX: {name}")
-            self.json_post(
-                "/cli-json/set_cx_state",
-                {
-                    "test_mgr": "ALL",
-                    "cx_name": name,
-                    "cx_state": "STOPPED"
-                },
-                debug_=self.debug
-            )
+    def clean_ping_cx(self):
+        self.ping_cx_profile.clean_cx_lists()
+        self.ping_cx_profile.cleanup()
 
-        # Signal thread to stop
-        self.stop_traffic_thread.set()
+    def clean_traffic_cx(self):
+        self.traffic_cx_profile.clean_cx_lists()
+        self.traffic_cx_profile.cleanup()
 
-        # Wait for thread to exit (important!)
-        if self.traffic_thread and self.traffic_thread.is_alive():
-            self.traffic_thread.join(timeout=5)
-
-        print("Traffic monitoring stopped")
-        time.sleep(2)
-
-    def stop_specific_cx(self, station_list):
-        for name in self.cx_profile.created_cx.keys():
+    def stop_specific_cx(self, station_list, profile=None):
+        profile = profile if profile is not None else self.traffic_cx_profile
+        for name in profile.created_cx.keys():
             for station in station_list:
                 sta_name = station.split('.')[-1]
                 if sta_name in name:
@@ -800,17 +882,20 @@ class BandSteer(Realm):
         if (signal is not None):
             return int(signal.split(' ')[0])
 
-    def get_throughput_snapshot(self, label):
-        """
-        Creates a readable throughput snapshot for Allure
-        """
+    def get_throughput_snapshot(self, label, profile=None):
+
+        profile = profile if profile is not None else self.traffic_cx_profile
         lines = [f"Throughput Snapshot: {label}", "-" * 50]
 
-        for cx_name, samples in self.traffic_data.items():
+        if not hasattr(profile, "traffic_data"):
+            return "No traffic data"
+
+        for cx_name, samples in profile.traffic_data.items():
             if not samples:
                 continue
 
             last = samples[-1]
+
             lines.append(
                 f"{cx_name} | "
                 f"RX A: {last['bps_rx_a']} bps | "
@@ -820,28 +905,6 @@ class BandSteer(Realm):
             )
 
         return "\n".join(lines)
-
-    def record_traffic_data(self):
-        self.traffic_data = dict()
-        while not self.stop_traffic_thread.is_set():
-            response_json = dict(self.json_get('/cx/all/'))
-
-            for cx_name in self.cx_profile.created_cx.keys():
-                if cx_name not in response_json:
-                    continue
-
-                traffic_details = response_json[cx_name]
-                dt = datetime.now()
-
-                self.traffic_data.setdefault(cx_name, []).append({
-                    "timestamp": dt.strftime("%H:%M:%S"),
-                    "bps_rx_a": traffic_details.get("bps rx a"),
-                    "bps_rx_b": traffic_details.get("bps rx b"),
-                    "rx_drop_a": traffic_details.get("rx drop % a"),
-                    "rx_drop_b": traffic_details.get("rx drop % b"),
-                })
-
-            time.sleep(1)
 
     def monitor_sta_scan(self):
         for station_name in self.station_list:
@@ -983,6 +1046,7 @@ class BandSteer(Realm):
                        station_list,
                        station_flag,
                        sta_type,
+                       dummy_client=False,
                        initial_band_pref=None,
                        option=None):
 
@@ -1167,18 +1231,19 @@ class BandSteer(Realm):
                                      cmd=self.custom_wifi_cmd)
 
         self.station_profile.admin_up()
-        print("Waiting for ports to admin up")
-        logging.info("Waiting for ports to admin up")
-        if self.wait_for_ip(station_list, timeout_sec=600):
-            print("All stations got IPs")
-            logging.info("All stations got IPs")
-            self.station_list = station_list
-            # self.set_unused_atten()
-            return True
-        else:
-            print("Stations failed to get IPs")
-            logging.info("Stations failed to get IPs")
-            return False
+        if not dummy_client:
+            print("Waiting for ports to admin up")
+            logging.info("Waiting for ports to admin up")
+            if self.wait_for_ip(station_list, timeout_sec=600):
+                print("All stations got IPs")
+                logging.info("All stations got IPs")
+                self.station_list = station_list
+                # self.set_unused_atten()
+                return True
+            else:
+                print("Stations failed to get IPs")
+                logging.info("Stations failed to get IPs")
+                return False
 
     def record_steering_events(self, before_bssids, before_channels, current_bssids, current_channels,
                                iteration_data, iteration_num, phase=None):
@@ -1358,127 +1423,6 @@ class BandSteer(Realm):
         print(data)
         return start_time, end_time
 
-    def start_band_steer_test_pre_assoc(self, attenuator=None, start_idx=None, end_idx=None):
-        # self.start_band_steer_test_standard()
-        self.admin_down(self.station_list[1])
-
-        self.create_cx(traffic_type=self.traffic_type)
-        self.start_specific_cx(station_list=self.station_list[0:1])
-
-        # Move the test wireless client STA2 close to the AP so that 5Ghz is strong
-        # need some radio wise atten logic to move specific client?
-        self.steer_specific_client(attenuator, start_idx, end_idx)
-        # self.move_sta_to_ap(self.station_list[1])
-
-        self.admin_up(self.station_list[1])
-
-        # NOT mentioned to stop traffic
-        self.stop_specific_cx(self.station_list[0:1])
-        return 'PRE_ASSOC_STEER'
-
-    def start_band_steer_test_post_assoc(self, attenuator):
-        # self.start_band_steer_test_standard()
-        if self.is_pinging():
-            self.create_cx(traffic_type=self.traffic_type)
-            self.start_cx()
-
-            # TODO: Need to move STA2 and STA3 close to AP (multi radio logic)
-            self.steer_specific_client(attenuator)
-
-            self.stop_cx()
-
-    def start_band_steer_test_no_pre_no_post(self, attenuators):
-        if self.is_pinging():
-            self.create_cx(traffic_type=self.traffic_type)
-            self.start_cx()
-
-            # TODO: Need to move STA2 close to AP so steer from 2.4Ghz -> 5Ghz
-            # TODO: Need to move STA4 close to AP so steer from 5Ghz -> 2.4Ghz
-            self.steer_specific_client(attenuators, direction=["dec", "inc"])
-
-            # Mentioned to stop only specific CX : STA2 and STA4
-            self.stop_specific_cx(self.station_list[1:-1])
-            # self.stop_cx()
-
-    def start_band_steer_test_stickiness(self):
-        for _ in range(5):
-            self.admin_down(self.station_list)
-            if self.is_pinging():
-                self.create_specific_cx(
-                    traffic_type=self.traffic_type,
-                    sta_list=self.station_list[:-1],
-                    upstream=self.upstream)
-                self.start_cx()
-
-                # RUN uplink ping from STA3 to AP
-                self.start_continues_ping(sta_list=self.station_list[-1], target_list=[self.upstream])
-                # TODO: Need to move STA2 close to AP
-                self.steer_specific_client(attenuators=None, direction="dec")
-                # Mentioned to stop only specific CX : STA2
-                self.stop_specific_cx(self.station_list[1:-1])
-                # self.stop_cx()
-
-                # TODO: RUN ping from STA2 to STA3
-                self.run_ping(sta_list=self.station_list[1:], target_list=[self.station_list[-1]])
-
-    def start_band_steer_test_success_rate(self, attenuators):
-        if self.is_pinging():
-            for _ in range(6):
-                self.create_specific_cx(
-                    traffic_type=self.traffic_type,
-                    sta_list=self.station_list[:-1],
-                    upstream=self.upstream)
-                self.start_cx()
-
-                # RUN uplink ping from STA3 to AP
-                # TODO: move STA2 close to AP STEER to 5Ghz
-                self.steer_specific_client(attenuators, direction=["dec"])
-
-                # Mentioned to stop only specific CX : STA2
-                self.stop_specific_cx(self.station_list[1:-1])
-                # self.stop_cx()
-
-                # Check the telnet session logs and sniffer trace.
-                self.create_specific_cx(
-                    traffic_type=self.traffic_type,
-                    sta_list=self.station_list[1:],
-                    upstream=self.upstream)
-                self.start_cx()
-
-                # Verify 5GHz band is Overloaded
-                # TODO: move STA2 close to AP STEER to 2.4Ghz
-                self.steer_specific_client(attenuators, direction=["inc"])
-                self.stop_cx()
-                # Check the telnet session logs and sniffer trace.
-
-    def start_band_steer_test_performance(self, attenuator):
-        if self.is_pinging():
-            self.create_specific_cx(
-                traffic_type=self.traffic_type,
-                sta_list=self.station_list[0],
-                upstream=self.upstream)
-            self.start_cx()
-            self.start_continues_ping(sta_list=self.station_list[1:], target_list=[self.upstream])
-
-            # Verify 5GHz band is Overloaded
-            # TODO: Move STA2, STA3, STA4, STA5 Close to AP where 2.4Ghz is strong STEER TO 2.4Ghz
-            self.steer_specific_client(attenuator, direction=["inc"])
-
-            self.stop_continues_ping()
-            self.stop_cx()
-            #  Check syslog and sniffer trace.
-
-            # Run three TCP downlink pairs from AP to STA1 and measure the throughput.
-            # Connect all the five wireless clients STA1, STA2, STA3, STA4 and STA5 to the 5 GHz band.
-            # Run three TCP downlink pairs from AP to STA1 and measure the throughput.
-
-    def start_band_steer_test_client_isolation_qvlan(self):
-        # stations should not ping eachother when client isolation is enabled
-        if not self.is_pinging():
-            self.start_continues_ping(sta_list=self.station_list)
-            self.start_band_steer_test_standard()
-            self.stop_continues_ping()
-
     def start_continues_ping(self, sta_list, target_list=None):
         if target_list is None:
             target_list = sta_list
@@ -1647,8 +1591,8 @@ class BandSteer(Realm):
                 print("some problem with monitor not being up")
         else:
             # Creation of Dummy stations for mtk 7996 radios
-            # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal")
-            # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal")
+            # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
+            # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal", dummy_client=True)
 
             self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="2437",
