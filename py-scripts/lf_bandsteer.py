@@ -274,12 +274,13 @@ class BandSteer(Realm):
 
         self.ping_cx_profile.name_prefix = 'ping_'
 
-        for sta_a, sta_b in combinations(station_list, 2):
-            self.ping_cx_profile.create(
-                endp_type=traffic_type,
-                side_a=[sta_a],
-                side_b=sta_b
-            )
+        if len(station_list) > 1:
+            for sta_a, sta_b in combinations(station_list, 2):
+                self.ping_cx_profile.create(
+                    endp_type=traffic_type,
+                    side_a=[sta_a],
+                    side_b=sta_b
+                )
 
         for sta in station_list:
             self.ping_cx_profile.create(
@@ -1591,8 +1592,8 @@ class BandSteer(Realm):
                 print("some problem with monitor not being up")
         else:
             # Creation of Dummy stations for mtk 7996 radios
-            # self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
-            # self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal", dummy_client=True)
+            self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
+            self.create_clients(radio=self.sniff_radio_2, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy1'], station_flag=None, sta_type="normal", dummy_client=True)
 
             self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="2437",
