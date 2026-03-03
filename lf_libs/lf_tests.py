@@ -2751,6 +2751,25 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list_1)
             track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list_2)
 
+            print(f"\nStarting band steering test...")
+            before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
+            before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
+            before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
+            before_state = {}
+
+            for sta in sta_list:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info")
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
             # -------------------- Verify Initial Connections --------------------
             # Verify STA1 and STA2 are on 2.4GHz
             sta_channels = band_steer.get_channel(as_dict=True, station_list=sta_list_1)
@@ -2848,6 +2867,8 @@ class lf_tests(lf_libs):
                     # Clean up traffic cross-connections
                     band_steer.clean_traffic_cx()
                     print(f"[DEBUG] Traffic-1 data : {band_steer.traffic_cx_profile.traffic_data}")
+
+                    time.sleep(20) # wait for station to connect
 
                     sta2_before_steer = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]])
                     print(f"STA2 current channel: {sta2_before_steer}")
@@ -2947,6 +2968,25 @@ class lf_tests(lf_libs):
             print(f"\n{'=' * 60}")
             print("TEST COMPLETE - SUMMARY")
             print(f"{'=' * 60}")
+
+            print(f"\nStarting band steering test...")
+            after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
+            after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
+            after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
+            after_state = {}
+
+            for sta in sta_list:
+                after_state[sta] = {
+                    "bssid": after_bssid.get(sta),
+                    "channel": after_chan.get(sta),
+                    "rssi": after_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info")
+            allure.attach(
+                body=json.dumps(after_state, indent=4),
+                name="After Band Steering Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
 
             # Display iteration results
             for result in all_iteration_results:
@@ -3177,7 +3217,7 @@ class lf_tests(lf_libs):
             )
 
             band_steer.clean_ping_cx()
-            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profiletraffic_data}")
+            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profile.traffic_data}")
 
             # -------------------- Ping Status --------------------
             print(f"[DEBUG] Connectivity status : {ping_status}")
@@ -4462,7 +4502,7 @@ class lf_tests(lf_libs):
             )
 
             band_steer.clean_ping_cx()
-            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profiletraffic_data}")
+            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profile.traffic_data}")
 
             # -------------------- Ping Status --------------------
             print(f"[DEBUG] Connectivity status : {ping_status}")
@@ -4886,13 +4926,25 @@ class lf_tests(lf_libs):
 
         station_radio_map = {}
 
+        def attach_attenuator_state(band_steer, title="Attenuator State"):
+            atten_info = band_steer.get_atten_info()
+
+            if not atten_info:
+                return
+
+            allure.attach(
+                body=json.dumps(atten_info, indent=4),
+                name=title,
+                attachment_type=allure.attachment_type.JSON
+            )
+
         def track_station_creation(radio, station_list):
             """Track which stations were created on which radio."""
             if radio not in station_radio_map:
                 station_radio_map[radio] = []
             station_radio_map[radio].extend(station_list)
-
-        if test_type == "roam_standard":
+        # 9
+        if test_type == "roam_personal_security":
             """
                 TC_2.4.2_2 : Test to validate AP enabled roaming with personal security
             """
@@ -4918,10 +4970,14 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            # -------------------- Enable 802.11kvr --------------------
+            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+                                                                            enable_11k=True,
+                                                                            enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
+                num_sta=1,
                 radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
@@ -4944,9 +5000,12 @@ class lf_tests(lf_libs):
                                      password=passkey,
                                      security=security)
 
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
+
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
-                radio=band_steer.station_radio,
+                radio=dict_all_radios_5g["mtk_radios"][0],
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -4968,6 +5027,27 @@ class lf_tests(lf_libs):
                 name="Station IPs",
                 attachment_type=allure.attachment_type.TEXT
             )
+            # -------------------- Start Continues Ping --------------------
+            band_steer.create_ping_cx(station_list=sta_list)
+            band_steer.start_ping_cx()
+
+            time.sleep(30)
+            band_steer.stop_ping_cx()
+            ping_status = band_steer.check_connectivity(band_steer.ping_cx_profile)
+
+            allure.attach(
+                body=json.dumps(getattr(band_steer.ping_cx_profile, "traffic_data", {}), indent=4),
+                name="Station Connectivity Check",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            band_steer.clean_ping_cx()
+            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profile.traffic_data}")
+
+            # -------------------- Ping Status --------------------
+            print(f"[DEBUG] Connectivity status : {ping_status}")
+            if not ping_status:
+                pytest.fail(f"[Status] {ping_status}: Station are not pinging each other")
 
             print(f"\nStarting band steering test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
@@ -5000,6 +5080,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5076,7 +5159,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             return 'PASS', test_results
-
+        # 8
         elif test_type == "roam_enterprise_security":
             """
                 TC_2.4.2_2 : Test to validate AP enabled roaming with enterprise security
@@ -5111,7 +5194,7 @@ class lf_tests(lf_libs):
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
+                num_sta=1,
                 radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
@@ -5133,9 +5216,12 @@ class lf_tests(lf_libs):
                                      password=passkey,
                                      security=security)
 
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
+
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
-                radio=band_steer.station_radio,
+                radio=dict_all_radios_5g["mtk_radios"][0],
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -5194,6 +5280,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5282,7 +5371,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             return 'PASS', test_results
-
+        # 6 7
         elif test_type == "soft_roam_test":
             """
                 TC_K-V_6 : Soft Roaming Test (AP1 → AP2) with Ping Traffic - 802.11k/v/r Enabled
@@ -5319,7 +5408,7 @@ class lf_tests(lf_libs):
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
+                num_sta=1,
                 radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
@@ -5349,7 +5438,7 @@ class lf_tests(lf_libs):
 
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
-                radio=band_steer.station_radio,
+                radio=dict_all_radios_5g["mtk_radios"][0],
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -5371,6 +5460,9 @@ class lf_tests(lf_libs):
                 name="Station IPs",
                 attachment_type=allure.attachment_type.TEXT
             )
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
 
             print(f"\nStarting band steering test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
@@ -5483,8 +5575,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             return 'PASS', test_results
-
-        # TODO: Not Verified
+        # 5
         elif test_type == "11r_over_11kvr":
             """
                 TC_K-V_5 : Test to validate romaing when 802.11R is disabled and 802.11K/V are enabled over 802.11KVR all are enabled
@@ -5544,7 +5635,7 @@ class lf_tests(lf_libs):
 
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
-                radio=band_steer.station_radio,
+                radio=dict_all_radios_5g["mtk_radios"][0],
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -5587,17 +5678,23 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            # -------------------- Trigger Steering --------------------
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
+
+            # -------------------- Trigger Roaming --------------------
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
-            # -------------------- Validate Steering --------------------
+            # -------------------- Validate Roaming --------------------
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - After Roaming")
 
             stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
 
@@ -5636,6 +5733,10 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
                                                                             enable_11k=True,
                                                                             enable_11v=True)
+
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # -------------------- Initial Attenuation --------------------
             # setting attenuation to connect Back to AP1
@@ -5678,6 +5779,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5757,7 +5861,7 @@ class lf_tests(lf_libs):
         # TODO: Not Verified
         elif test_type == "l2_roaming":
             """
-                TC_K-V_5 : Test to validate roaming when 802.11R is disabled and 802.11K/V are enabled over 802.11KVR all are enabled
+                TC_K-V_5 : Test to validate AP enabled roaming (12 Roaming)
             """
             band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
@@ -5952,6 +6056,9 @@ class lf_tests(lf_libs):
 
         # TODO: Not Implemented yet as per test case
         elif test_type == "roam_band_steer":
+            """
+                TC_ROAM-BANDSTEER_05 : Test to validate AP enabled roaming
+            """
             band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
                 port=get_testbed_details.get("port", 8080),
@@ -5997,46 +6104,28 @@ class lf_tests(lf_libs):
                                      security=security)
 
             # -------------------- Initial Conditions --------------------
-            if band_steer.steer_type == 'steer_fiveg':
-#                 get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
-
+            if roam_towards == "ap2":
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3002', 400, idx - 1)  # Initial attenuation to 45 for steer_fiveg case
+                    band_steer.set_atten('1.1.3002', 0, idx - 1)  # Initial attenuation to 45 for steer_fiveg case
                     # Setting max attenuation to Un-used modules of given attenuator
                     band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
-
-                band_steer.create_clients(
-                    radio=band_steer.station_radio,
-                    ssid=ssid,
-                    passwd=passkey,
-                    security=security,
-                    station_list=sta_list,
-                    station_flag="use-bss-transition",
-                    sta_type="enterprise",
-                    initial_band_pref="5GHz",
-                    option=None
-                )
-
-                # Verify station connected to 2Ghz band and then enable 5Ghz band
-#                 get_target_object.dut_library_object.control_radio_band(band="5g", action="up")
-
             else:
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3002', 0, idx - 1)  # Initial attenuation to 0 for steer_twog case
+                    band_steer.set_atten('1.1.3002', 400, idx - 1)  # Initial attenuation to 0 for steer_twog case
                     # Setting max attenuation to Un-used modules of given attenuator
                     band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
 
-                band_steer.create_clients(
-                    radio=band_steer.station_radio,
-                    ssid=ssid,
-                    passwd=passkey,
-                    security=security,
-                    station_list=sta_list,
-                    station_flag="use-bss-transition",
-                    sta_type="enterprise",
-                    initial_band_pref="5GHz",
-                    option=None
-                )
+            band_steer.create_clients(
+                radio=band_steer.station_radio,
+                ssid=ssid,
+                passwd=passkey,
+                security=security,
+                station_list=sta_list,
+                station_flag="use-bss-transition",
+                sta_type="enterprise",
+                initial_band_pref="5GHz",
+                option=None
+            )
 
             # -------------------- Validate Initial Band --------------------
             # Attach Station IP map to allure report
@@ -6050,6 +6139,9 @@ class lf_tests(lf_libs):
                 name="Station IPs",
                 attachment_type=allure.attachment_type.TEXT
             )
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
 
             print(f"\nStarting band steering test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
@@ -6105,6 +6197,9 @@ class lf_tests(lf_libs):
             after_bssid = band_steer.get_bssids(as_dict=True)
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6182,7 +6277,7 @@ class lf_tests(lf_libs):
 
             return 'PASS', test_results
 
-        # NOT YET IMPLEMENTED AS PER TESTCASE
+        # NOT YET IMPLEMENTED AS PER TESTCASE [BLOCKED]
         elif test_type == "l2_roaming_bs" :
             """
                TC_ROAM-BANDSTEER_07 : L2 Roaming Enabled BS from 5GHz to 5GHz Same Channel
@@ -6420,6 +6515,8 @@ class lf_tests(lf_libs):
 
             return 'PASS', test_results
 
+        elif test_type == "l2_roaming_multi_client":
+            pass
 
     def band_steering_test(self, ssid="[BLANK]", passkey="[BLANK]", security="wpa2", mode="BRIDGE", band="twog",
                            num_sta=None, scan_ssid=True, client_type=0, pre_cleanup=True,
