@@ -274,13 +274,13 @@ class BandSteer(Realm):
 
         self.ping_cx_profile.name_prefix = 'ping_'
 
-        if len(station_list) > 1:
-            for sta_a, sta_b in combinations(station_list, 2):
-                self.ping_cx_profile.create(
-                    endp_type=traffic_type,
-                    side_a=[sta_a],
-                    side_b=sta_b
-                )
+        # if len(station_list) > 1:
+        #     for sta_a, sta_b in combinations(station_list, 2):
+        #         self.ping_cx_profile.create(
+        #             endp_type=traffic_type,
+        #             side_a=[sta_a],
+        #             side_b=sta_b
+        #         )
 
         for sta in station_list:
             self.ping_cx_profile.create(
@@ -1101,9 +1101,9 @@ class BandSteer(Realm):
         if sta_type == "enterprise":
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
-                                                identity = "testuser",
+                                                identity = "user",
                                                 eap="TTLS",
-                                                passwd = "testpasswd",
+                                                passwd = "passwod",
                                                 )
         if sta_type == "11r":
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
