@@ -172,7 +172,7 @@ class BandSteer(Realm):
         self.combined_sniff = bool(1 if (self.sniff_radio_1) and (self.sniff_radio_2) else 0)
 
 
-    def create_specific_cx(self, station_list, traffic_type='lf_tcp', upstream=None, pairs=0):
+    def create_specific_cx(self, station_list, traffic_type='lf_tcp', upstream=None, tos=None, pairs=0):
 
         self.traffic_cx_profile = self.new_l3_cx_profile()
         self.traffic_cx_profile.host = self.lanforge_ip
@@ -187,13 +187,15 @@ class BandSteer(Realm):
             self.traffic_cx_profile.name_prefix = 'steer_DL_'
             self.traffic_cx_profile.create(endp_type=traffic_type,
                                    side_a=station_list,
-                                   side_b=self.upstream if upstream is None else upstream)
+                                   side_b=self.upstream if upstream is None else upstream,
+                                   sleep_time=0,tos=tos)
         else:
             for pair in range(1, int(pairs)+1):
                 self.traffic_cx_profile.name_prefix = f'steer_DL_{pair}_'
                 self.traffic_cx_profile.create(endp_type=traffic_type,
                                        side_a=station_list,
-                                       side_b=self.upstream if upstream is None else upstream)
+                                       side_b=self.upstream if upstream is None else upstream,
+                                   sleep_time=0,tos=tos)
 
     def _start_profile(self, profile):
 
@@ -1591,13 +1593,14 @@ class BandSteer(Realm):
             else:
                 print("some problem with monitor not being up")
         else:
-            self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
-                                                     center_freq="2437",
-                                                     radio=self.sniff_radio_1, channel_freq=self.sniff_channel_1,
-                                                     monitor_name="monitor1")
+            if self.sniff_channel_1 is not None:
+                self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
+                                                         center_freq="2437",
+                                                         radio=self.sniff_radio_1, channel_freq=self.sniff_channel_1,
+                                                         monitor_name="monitor1")
 
-            self.pcap_obj_1.setup(0, 0, 0)
-            self.pcap_obj_1.monitor.admin_up()
+                self.pcap_obj_1.setup(0, 0, 0)
+                self.pcap_obj_1.monitor.admin_up()
 
             self.pcap_obj_2 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="5180",
@@ -1607,14 +1610,15 @@ class BandSteer(Realm):
             self.pcap_obj_2.monitor.admin_up()
 
             print("Waiting until ports appear...")
-            x = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
-                                                port_list=f"{self.sniff_radio_resource_1}.{self.sniff_radio_shelf_1}.monitor1",
-                                                debug=True, timeout=300)
+            if self.sniff_channel_1 is not None:
+                x = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
+                                                    port_list=f"{self.sniff_radio_resource_1}.{self.sniff_radio_shelf_1}.monitor1",
+                                                    debug=True, timeout=300)
 
             y = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
                                                 port_list=f"{self.sniff_radio_resource_2}.{self.sniff_radio_shelf_2}.monitor2",
                                                 debug=True, timeout=300)
-            if x and y:
+            if x or y:
                 sniffer_host = self.get_resource_host()
                 self.ssh = paramiko.SSHClient()
                 self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -1662,7 +1666,7 @@ class BandSteer(Realm):
                     print("tshark log:\n", log_out)
                     return
 
-                print(f"? Remote tshark started, PID = {self.tshark_pid}")
+                print(f"Remote tshark started, PID = {self.tshark_pid}")
 
             # Creation of Dummy stations for mtk 7996 radios
             self.create_clients(radio=self.sniff_radio_1, ssid=ssid, passwd=password, security=security, station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
