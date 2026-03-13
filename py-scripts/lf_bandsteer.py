@@ -152,7 +152,7 @@ class BandSteer(Realm):
         # self.station_based_roam_count = {}
         # self.sta_steer_count = {}
         # self.final_data = {}
-        # self.sta_mac = {}
+        self.sta_mac = {}
         # self.roam_timeout = roam_timeout
         # self.bssid_based_info = {}
         # self.ssid_based_info = {}
@@ -1105,7 +1105,7 @@ class BandSteer(Realm):
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
                                                 identity = "user",
                                                 eap="TTLS",
-                                                passwd = "passwod",
+                                                passwd = "password",
                                                 )
         if sta_type == "11r":
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
@@ -1491,16 +1491,17 @@ class BandSteer(Realm):
         return "\n".join(logs)
 
     def get_mac(self):
-        mac_list = []
+        self.sta_mac = {}
+
         response = super().json_get('/port/list?fields=_links,alias,mac,port+type')
         for sta in self.station_list:
-            for x in range(len(response['interfaces'])):
-                for k, v in response['interfaces'][x].items():
-                    if v['alias'] == sta.split('.')[2]:
-                        mac_list.append(v['mac'])
-                        self.sta_mac[sta] = v['mac']
-        del response
-        return mac_list
+            sta_alias = sta.split('.')[2]
+
+            for interface in response['interfaces']:
+                if interface['alias'] == sta_alias:
+                    self.sta_mac[sta] = interface['mac']
+
+        return self.sta_mac
 
     def get_atten_info(self):
         atten_info = {}
