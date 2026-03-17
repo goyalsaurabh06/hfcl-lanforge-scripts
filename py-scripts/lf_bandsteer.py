@@ -1494,12 +1494,15 @@ class BandSteer(Realm):
         self.sta_mac = {}
 
         response = super().json_get('/port/list?fields=_links,alias,mac,port+type')
+
         for sta in station_list:
             sta_alias = sta.split('.')[2]
 
-            for interface in response['interfaces']:
-                if interface['alias'] == sta_alias:
-                    self.sta_mac[sta] = interface['mac']
+            for interface in response.get('interfaces', []):
+                for _, port_data in interface.items():
+
+                    if port_data.get('alias') == sta_alias:
+                        self.sta_mac[sta] = port_data.get('mac') or port_data.get('ap')
 
         return self.sta_mac
 
