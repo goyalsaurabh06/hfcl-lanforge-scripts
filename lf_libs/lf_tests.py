@@ -1282,7 +1282,7 @@ class lf_tests(lf_libs):
             before_state = {}
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -1556,7 +1556,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -1879,7 +1879,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -2219,7 +2219,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -2491,7 +2491,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -2803,7 +2803,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -3229,7 +3229,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -3591,7 +3591,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -3901,7 +3901,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -4206,7 +4206,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -4545,7 +4545,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -4874,7 +4874,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -5391,7 +5391,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -5669,7 +5669,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -5765,7 +5765,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -5977,7 +5977,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -6187,7 +6187,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -6423,7 +6423,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -6722,7 +6722,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -6952,7 +6952,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -7210,7 +7210,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -7480,7 +7480,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -7719,7 +7719,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -7955,7 +7955,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -8188,7 +8188,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac()
+            mac_dict = band_steer.get_mac(station_list = sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),

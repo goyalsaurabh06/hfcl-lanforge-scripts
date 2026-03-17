@@ -1490,11 +1490,11 @@ class BandSteer(Realm):
 
         return "\n".join(logs)
 
-    def get_mac(self):
+    def get_mac(self, station_list):
         self.sta_mac = {}
 
         response = super().json_get('/port/list?fields=_links,alias,mac,port+type')
-        for sta in self.station_list:
+        for sta in station_list:
             sta_alias = sta.split('.')[2]
 
             for interface in response['interfaces']:
