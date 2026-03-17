@@ -1268,7 +1268,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -1543,7 +1543,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -1866,7 +1866,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -2186,7 +2186,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -3216,7 +3216,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -3578,7 +3578,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -3883,7 +3883,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -4178,7 +4178,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -4422,16 +4422,17 @@ class lf_tests(lf_libs):
             vlan_id = get_testbed_details["device_under_tests"][idx]["management_vlan"]
             self.add_vlan(vlan_ids=[vlan_id,  qvlan_id], build=True)
 
+            time.sleep(120)
             # -------------------- Management VLAN AP config --------------------
             dut.dut_library_object.attach_network_snapshot(idx, "Before DHCP VLAN")
 
-            # ping_status = dut.dut_library_object.ping(
-            #     "8.8.8.8",
-            #     idx=idx,
-            #     attach_name="Pre-Config(108) Internet Check"
-            # )
-            # if not ping_status:
-            #     pytest.fail("Internet is not reachable before configuration push(108)")
+            ping_status = dut.dut_library_object.ping(
+                "8.8.8.8",
+                idx=idx,
+                attach_name="Pre-Config(108) Internet Check"
+            )
+            if not ping_status:
+                pytest.fail("Internet is not reachable before configuration push(108)")
             ret_val = dut.dut_library_object.verify_ap_connected_to_controller(idx=idx, attach_allure=False)
             if not ret_val:
                 logging.error(" AP Went to Disconnected State after Applying Config, Checking again after 30 Seconds")
@@ -4532,7 +4533,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             # -------------------- Attenuator State --------------------
@@ -4860,7 +4861,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -5382,7 +5383,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
@@ -5658,7 +5659,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -5963,7 +5964,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6175,7 +6176,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6411,7 +6412,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6708,7 +6709,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6943,7 +6944,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
@@ -7199,7 +7200,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -7471,7 +7472,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
@@ -7710,7 +7711,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
@@ -7946,7 +7947,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
@@ -8179,7 +8180,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 ip_text,
-                name="Station IPs",
+                name="virtual client IP mapping",
                 attachment_type=allure.attachment_type.TEXT
             )
             before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
