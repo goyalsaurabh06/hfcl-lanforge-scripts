@@ -5370,7 +5370,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -5951,7 +5951,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="normal",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6160,7 +6160,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6396,7 +6396,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="normal",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6931,7 +6931,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -7099,7 +7099,6 @@ class lf_tests(lf_libs):
 
             return 'PASS', test_results
 
-        # NOT YET IMPLEMENTED AS PER TESTCASE [BLOCKED]
         # 17 18 19 20
         elif test_type == "roaming_channel_check" :
             """
@@ -7459,7 +7458,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -7698,7 +7697,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -7934,7 +7933,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="normal",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -8167,7 +8166,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="normal",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
