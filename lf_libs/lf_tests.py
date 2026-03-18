@@ -1192,6 +1192,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -1462,6 +1464,7 @@ class lf_tests(lf_libs):
                 initial_band_pref="5GHz",
                 traffic="download"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -1785,6 +1788,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -2111,6 +2115,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 0, idx - 3)
                 band_steer.set_atten('1.1.3002', 400, idx - 1)
@@ -2417,6 +2423,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             overall_status = "PASS"
             iteration_results = {}
@@ -2718,6 +2726,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -3142,12 +3152,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
 
-            ''' 
-                Apply Initial Attenuation:
-                attenuation from LF2 2G clients (STA1 and STA2) to AP set 20ddb
-                attenuation from LF1 5G clients (STA3 and STA4) to AP set 20ddb               
-            '''
             # ---------- Initial Attenuation ----------
             for idx in range(3, 5):
                 band_steer.set_atten("1.1.3009", 0, idx - 3)
@@ -3517,6 +3523,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
@@ -3798,6 +3806,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
@@ -4109,6 +4119,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 400, idx - 3)
                 band_steer.set_atten('1.1.3002', 400, idx - 1)
@@ -4415,6 +4427,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             # -------------------- Management VLAN Creation --------------------
             idx = 0
             qvlan_id = 100
@@ -4760,6 +4774,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- Management VLAN Creation --------------------
             idx = 0
@@ -5200,6 +5216,8 @@ class lf_tests(lf_libs):
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0]
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             try:
                 # -------------------- Start AMQP Log Capture --------------------
@@ -5325,6 +5343,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             # -------------------- Initial Attenuation --------------------
 
             for idx in range(3, 5):
@@ -5395,7 +5415,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Station MAC Mapping",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -5409,7 +5429,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -5428,6 +5448,9 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -5435,7 +5458,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -5470,7 +5493,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -5533,6 +5556,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             # -------------------- Initial Attenuation --------------------
 
             for idx in range(3, 5):
@@ -5556,6 +5581,9 @@ class lf_tests(lf_libs):
 
             time.sleep(120)
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -5563,7 +5591,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -5604,6 +5632,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # TODO: Disable 802.11r from given SSID
             # -------------------- Disable 802.11r --------------------
@@ -5632,6 +5662,9 @@ class lf_tests(lf_libs):
 
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5688,7 +5721,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -5784,7 +5817,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -5803,6 +5836,9 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -5810,7 +5846,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -5907,6 +5943,12 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
+
 
             # -------------------- Enable 802.11k/v/r --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -5996,7 +6038,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6016,6 +6058,9 @@ class lf_tests(lf_libs):
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -6023,7 +6068,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -6058,7 +6103,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6119,6 +6164,10 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6206,7 +6255,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6240,26 +6289,17 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
-
-            # -------------------- Stop Continues Ping --------------------
-            ping_status, ping_data = band_steer.stop_generic_ping()
-
-            allure.attach(
-                body=json.dumps({
-                    "status": ping_status,
-                    "results": ping_data
-                }, indent=4),
-                name="Continuous Ping Results",
-                attachment_type=allure.attachment_type.JSON
-            )
 
             try:
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -6294,7 +6334,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6355,6 +6395,10 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6442,7 +6486,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6476,26 +6520,17 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
-
-            # -------------------- Stop Continues Ping --------------------
-            ping_status, ping_data = band_steer.stop_generic_ping()
-
-            allure.attach(
-                body=json.dumps({
-                    "status": ping_status,
-                    "results": ping_data
-                }, indent=4),
-                name="Continuous Ping Results",
-                attachment_type=allure.attachment_type.JSON
-            )
 
             try:
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -6530,7 +6565,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6564,8 +6599,7 @@ class lf_tests(lf_libs):
 
             return 'PASS', test_results
 
-        # TODO: Not Verified
-        # 09 10 11
+        # 10 11
         elif test_type == "l2_mobility_doamin":
             """
                 TC_2.4.2_3 : Test to verify L2 roaming with Mobility domain
@@ -6593,6 +6627,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6609,6 +6645,9 @@ class lf_tests(lf_libs):
 
             time.sleep(120)
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -6616,7 +6655,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -6656,6 +6695,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- STA Creation --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -6670,6 +6711,9 @@ class lf_tests(lf_libs):
 
             # Track station-radio mapping
             track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -6740,7 +6784,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6783,6 +6827,9 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -6790,7 +6837,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -6825,7 +6872,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -6888,6 +6935,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -6970,7 +7019,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7020,6 +7069,9 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -7027,7 +7079,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -7062,7 +7114,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7131,6 +7183,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7156,6 +7210,9 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3009', 900, idx - 3)
                     band_steer.set_atten('1.1.3002', 900, idx - 3)
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7228,7 +7285,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7268,6 +7325,9 @@ class lf_tests(lf_libs):
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -7275,7 +7335,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -7310,7 +7370,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7415,6 +7475,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -7497,7 +7559,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7547,6 +7609,9 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -7554,7 +7619,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -7589,7 +7654,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7654,6 +7719,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -7736,7 +7803,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7786,6 +7853,9 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -7793,7 +7863,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -7828,7 +7898,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -7893,6 +7963,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -7902,6 +7974,9 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
                                                                             enable_11k=True,
                                                                             enable_11v=True)
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7972,7 +8047,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -8022,6 +8097,9 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -8029,7 +8107,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -8064,7 +8142,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -8126,6 +8204,8 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
+            get_target_object.dut_library_object.get_radio_mac_addresses()
+
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -8135,6 +8215,9 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
                                                                             enable_11k=True,
                                                                             enable_11v=True)
+
+            # -------------------- Start AMQP Log Capture --------------------
+            get_target_object.dut_library_object.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -8205,7 +8288,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Before Steer Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
-                name="Before Band Steering Station BSSID & Channel",
+                name="Before Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -8255,6 +8338,9 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
+            # -------------------- Stop and validate AMQP logs --------------------
+            get_target_object.dut_library_object.stop_amqp_log_capture()
+
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -8262,7 +8348,7 @@ class lf_tests(lf_libs):
                 with open(local_pcap, "rb") as f:
                     allure.attach(
                         f.read(),
-                        name="Band Steering Sniffer Capture",
+                        name="Roaming Sniffer Capture",
                         attachment_type=allure.attachment_type.PCAP
                     )
             except Exception as e:
@@ -8297,7 +8383,7 @@ class lf_tests(lf_libs):
             )
             allure.attach(
                 body=json.dumps(test_results, indent=4),
-                name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
+                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
 
