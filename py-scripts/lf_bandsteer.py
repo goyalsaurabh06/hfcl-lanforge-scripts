@@ -1120,31 +1120,7 @@ class BandSteer(Realm):
             # 11kvr => k : neighboring AP so ds enabled 1
             self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
             # self.station_profile.set_command_flag("add_sta", "power_save_enable", 1)
-            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
-                                                pairwise="",
-                                                group="",
-                                                psk="",
-                                                eap="",
-                                                identity="",
-                                                passwd="",
-                                                pin="",
-                                                phase1="NA",
-                                                phase2="NA",
-                                                pac_file="NA",
-                                                private_key="NA",
-                                                pk_password="NA",
-                                                # hessid="00:00:00:00:00:01",
-                                                # realm="localhost.localdomain",
-                                                client_cert="NA",
-                                                imsi="NA",
-                                                milenage="NA",
-                                                # domain="localhost.localdomain",
-                                                roaming_consortium="NA",
-                                                venue_group="NA",
-                                                network_type="NA",
-                                                ipaddr_type_avail="NA",
-                                                network_auth_type="NA",
-                                                anqp_3gpp_cell_net="NA")
+            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK")
 
         if sta_type == "11r-sae":
             self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)

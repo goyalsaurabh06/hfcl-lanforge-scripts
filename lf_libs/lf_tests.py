@@ -5023,28 +5023,37 @@ class lf_tests(lf_libs):
             return 'PASS', test_results
 
 
-    def start_amqp_log_capture(self, idx=0):
+    def start_amqp_log_capture(self, get_target_object, idx=0):
         """Start continuous AMQP log capture in background"""
         self._amqp_stop_event = threading.Event()
         self._amqp_logs = []
 
         def _capture():
+            logging.info("AMQP capture thread started")
             while not self._amqp_stop_event.is_set():
                 try:
-                    output = self.run_generic_command(
+                    logging.info("Running AMQP log command...")
+
+                    output = get_target_object.dut_library_object.run_generic_command(
                         cmd="logread -f | grep AMQP",
                         idx=idx,
                         print_log=False,
                         attach_allure=False
                     )
 
+                    logging.info(f"Command returned: {output}")
+
                     if output:
+                        logging.info("Appending AMQP log chunk")
                         self._amqp_logs.append(output)
+                    else:
+                        logging.info("No output received")
 
                 except Exception as e:
                     logging.error(f"AMQP log capture failed: {e}")
 
-                time.sleep(3)
+                time.sleep(2)
+            logging.info("AMQP capture thread exiting")
 
         self._amqp_thread = threading.Thread(target=_capture, daemon=True)
         self._amqp_thread.start()
@@ -5217,7 +5226,7 @@ class lf_tests(lf_libs):
 
             try:
                 # -------------------- Start AMQP Log Capture --------------------
-                self.start_amqp_log_capture()
+                self.start_amqp_log_capture(get_target_object)
 
                 # -------------------- Start sniffer --------------------
                 sniffer_obj.start_sniffer(
@@ -5354,7 +5363,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=False)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5568,7 +5577,7 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5660,7 +5669,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5943,7 +5952,7 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
 
             # -------------------- Enable 802.11k/v/r --------------------
@@ -6163,7 +6172,7 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6394,7 +6403,7 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6632,7 +6641,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -6709,7 +6718,7 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -6944,7 +6953,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7208,7 +7217,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7484,7 +7493,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7728,7 +7737,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7972,7 +7981,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -8213,7 +8222,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture()
+            self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
