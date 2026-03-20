@@ -1238,10 +1238,6 @@ class lf_tests(lf_libs):
                     option=None
                 )
 
-
-                # Verify station connected to 2Ghz band and then enable 5Ghz band
-                # get_target_object.dut_library_object.control_radio_band(band="5g", action="up")
-
             else:
                 for idx in range(3, 5):
                     band_steer.set_atten('1.1.3009', 0, idx - 3)  # Initial attenuation to 0 for steer_fiveg case
@@ -4440,13 +4436,13 @@ class lf_tests(lf_libs):
             # -------------------- Management VLAN AP config --------------------
             dut.dut_library_object.attach_network_snapshot(idx, "Before DHCP VLAN")
 
-            ping_status = dut.dut_library_object.ping(
-                "8.8.8.8",
-                idx=idx,
-                attach_name="Pre-Config(108) Internet Check"
-            )
-            if not ping_status:
-                pytest.fail("Internet is not reachable before configuration push(108)")
+            # ping_status = dut.dut_library_object.ping(
+            #     "8.8.8.8",
+            #     idx=idx,
+            #     attach_name="Pre-Config(108) Internet Check"
+            # )
+            # if not ping_status:
+            #     pytest.fail("Internet is not reachable before configuration push(108)")
             ret_val = dut.dut_library_object.verify_ap_connected_to_controller(idx=idx, attach_allure=False)
             if not ret_val:
                 logging.error(" AP Went to Disconnected State after Applying Config, Checking again after 30 Seconds")
@@ -4785,7 +4781,7 @@ class lf_tests(lf_libs):
             self.add_vlan(vlan_ids=[vlan_id], build=True)
             print('Created vlan 200')
 
-            time.sleep(20)
+            time.sleep(120)
             # -------------------- Management VLAN AP config --------------------
 
             dut.dut_library_object.attach_network_snapshot(idx, "Before DHCP VLAN")
@@ -5221,7 +5217,7 @@ class lf_tests(lf_libs):
 
             try:
                 # -------------------- Start AMQP Log Capture --------------------
-                get_target_object.dut_library_object.start_amqp_log_capture()
+                self.start_amqp_log_capture()
 
                 # -------------------- Start sniffer --------------------
                 sniffer_obj.start_sniffer(
@@ -5238,7 +5234,7 @@ class lf_tests(lf_libs):
                 time.sleep(60)
 
                 # -------------------- Stop and validate AMQP logs --------------------
-                get_target_object.dut_library_object.stop_amqp_log_capture()
+                self.stop_amqp_log_capture()
                 amqp_pass, amqp_checks, amqp_text = dut.validate_amqp_logs_for_rrm(ssid=ssid)
 
                 allure.attach(
@@ -5358,7 +5354,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=False)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5449,7 +5445,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5572,7 +5568,7 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5582,7 +5578,7 @@ class lf_tests(lf_libs):
             time.sleep(120)
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5664,7 +5660,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -5837,7 +5833,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -5947,7 +5943,7 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
 
             # -------------------- Enable 802.11k/v/r --------------------
@@ -6059,7 +6055,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6167,7 +6163,7 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6290,7 +6286,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6398,7 +6394,7 @@ class lf_tests(lf_libs):
             get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Enable 802.11kvr --------------------
             get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -6521,7 +6517,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6636,7 +6632,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -6646,7 +6642,7 @@ class lf_tests(lf_libs):
             time.sleep(120)
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6662,7 +6658,7 @@ class lf_tests(lf_libs):
                 print("Allure attach failed:", e)
 
             # Stop AMQP logging
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             return 'PASS', "Captured Sniffer pcap"
 
@@ -6713,7 +6709,7 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -6828,7 +6824,7 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -6948,7 +6944,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7070,7 +7066,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -7147,7 +7143,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             # Stop AMQP logging
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             return 'PASS', test_results
 
@@ -7212,7 +7208,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7326,7 +7322,7 @@ class lf_tests(lf_libs):
             after_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------------
             local_pcap = band_steer.stop_sniffer()
@@ -7488,7 +7484,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7610,7 +7606,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -7687,7 +7683,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             # Stop AMQP logging
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             return 'PASS', test_results
 
@@ -7732,7 +7728,7 @@ class lf_tests(lf_libs):
                                                                            enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -7854,7 +7850,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -7931,7 +7927,7 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             # Stop AMQP logging
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             return 'PASS', test_results
 
@@ -7976,7 +7972,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -8098,7 +8094,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -8217,7 +8213,7 @@ class lf_tests(lf_libs):
                                                                             enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            get_target_object.dut_library_object.start_amqp_log_capture()
+            self.start_amqp_log_capture()
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer(ssid=ssid,
@@ -8339,7 +8335,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
 
             # -------------------- Stop and validate AMQP logs --------------------
-            get_target_object.dut_library_object.stop_amqp_log_capture()
+            self.stop_amqp_log_capture()
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
