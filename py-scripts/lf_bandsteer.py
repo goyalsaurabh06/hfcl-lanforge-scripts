@@ -1109,7 +1109,7 @@ class BandSteer(Realm):
                                                 )
         if sta_type == "11r":
             # self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
-            # self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
+            self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             # if not self.soft_roam:
             #     self.station_profile.set_command_flag("add_sta", "disable_roam", 1)
             # if self.soft_roam:
@@ -1120,7 +1120,8 @@ class BandSteer(Realm):
             # 11kvr => k : neighboring AP so ds enabled 1
             self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
             # self.station_profile.set_command_flag("add_sta", "power_save_enable", 1)
-            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK")
+            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
+                                                psk=passwd)
 
         if sta_type == "11r-sae":
             self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
