@@ -1184,7 +1184,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -3511,7 +3511,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -3794,7 +3794,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -4415,7 +4415,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -4762,7 +4762,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -5032,16 +5032,12 @@ class lf_tests(lf_libs):
             logging.info("AMQP capture thread started")
             while not self._amqp_stop_event.is_set():
                 try:
-                    logging.info("Running AMQP log command...")
-
                     output = get_target_object.dut_library_object.run_generic_command(
                         cmd="logread -f | grep AMQP",
                         idx=idx,
                         print_log=False,
                         attach_allure=False
                     )
-
-                    logging.info(f"Command returned: {output}")
 
                     if output:
                         logging.info("Appending AMQP log chunk")
@@ -5158,9 +5154,9 @@ class lf_tests(lf_libs):
             ssid,
             passkey,
             security,
-            num_sta,
             test_type,
             test_config,
+            num_sta=1,
             roam_towards=None,
             steer_type=None,
             initial_band=None,
@@ -5339,7 +5335,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -5553,7 +5549,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -6161,7 +6157,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -6392,7 +6388,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
@@ -6691,7 +6687,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -6931,7 +6927,7 @@ class lf_tests(lf_libs):
                 # sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -7471,7 +7467,7 @@ class lf_tests(lf_libs):
                 # sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -7715,7 +7711,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -7959,7 +7955,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
@@ -8200,7 +8196,7 @@ class lf_tests(lf_libs):
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),  # "{'1.1.3002':{(1,4)}}"
+                attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
                 max_attenuation=test_config.get("max_attenuation", 40),
