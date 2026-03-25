@@ -5022,54 +5022,45 @@ class lf_tests(lf_libs):
 
             return 'PASS', test_results
 
-
     def start_amqp_log_capture(self, get_target_object, idx=0):
-        """Start continuous AMQP log capture in background"""
-        self._amqp_stop_event = threading.Event()
-        self._amqp_logs = []
+        """Clear AMQP logs at test start"""
+        logging.info("Clearing syslog before test start")
 
-        def _capture():
-            logging.info("AMQP capture thread started")
-            while not self._amqp_stop_event.is_set():
-                try:
-                    output = get_target_object.dut_library_object.run_generic_command(
-                        cmd="logread -f | grep AMQP",
-                        idx=idx,
-                        print_log=False,
-                        attach_allure=False
-                    )
-
-                    if output:
-                        logging.info("Appending AMQP log chunk")
-                        self._amqp_logs.append(output)
-                    else:
-                        logging.info("No output received")
-
-                except Exception as e:
-                    logging.error(f"AMQP log capture failed: {e}")
-
-                time.sleep(2)
-            logging.info("AMQP capture thread exiting")
-
-        self._amqp_thread = threading.Thread(target=_capture, daemon=True)
-        self._amqp_thread.start()
-
-    def stop_amqp_log_capture(self):
-        """Stop AMQP capture and attach logs to Allure"""
-        if hasattr(self, "_amqp_stop_event"):
-            self._amqp_stop_event.set()
-
-        if hasattr(self, "_amqp_thread"):
-            self._amqp_thread.join(timeout=5)
-
-        logs = "\n".join(self._amqp_logs)
-
-        if logs:
-            allure.attach(
-                logs,
-                name="AMQP Logs",
-                attachment_type=allure.attachment_type.TEXT
+        try:
+            get_target_object.dut_library_object.run_generic_command(
+                cmd="logread -c",
+                idx=idx,
+                print_log=False,
+                attach_allure=False
             )
+        except Exception as e:
+            logging.error(f"Failed to clear logs: {e}")
+
+    def stop_amqp_log_capture(self, get_target_object, idx=0):
+        """Fetch AMQP logs at end and attach to Allure"""
+
+        logging.info("Fetching AMQP logs from /tmp/syslog")
+
+        try:
+            logs = get_target_object.dut_library_object.run_generic_command(
+                cmd="grep AMQP /tmp/syslog",
+                idx=idx,
+                print_log=False,
+                attach_allure=False
+            )
+
+            if logs and logs.strip():
+                allure.attach(
+                    logs,
+                    name="AMQP Logs",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+                logging.info("AMQP logs attached to Allure")
+            else:
+                logging.warning("No AMQP logs found")
+
+        except Exception as e:
+            logging.error(f"Failed to fetch AMQP logs: {e}")
 
     def validate_amqp_logs_for_rrm(self, ssid=None):
         logs = "\n".join(getattr(self, "_amqp_logs", []))
@@ -5233,8 +5224,8 @@ class lf_tests(lf_libs):
 
                 # Must enable both 11r and 11k
                 # -------------------- Enable 802.11kvr --------------------
-                get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                                enable_11k=True)
+                # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+                #                                                                 enable_11k=True)
 
                 time.sleep(60)
 
@@ -5354,9 +5345,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=False)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=False)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -5567,9 +5558,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=False,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=False,
+            #                                                                 enable_11v=True)
 
 
             # -------------------- Start AMQP Log Capture --------------------
@@ -5638,9 +5629,9 @@ class lf_tests(lf_libs):
 
             # TODO: Disable 802.11r from given SSID
             # -------------------- Disable 802.11r --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=False,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=False,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -5775,9 +5766,9 @@ class lf_tests(lf_libs):
             )
             # TODO: Enable 802.11r from given SSID and roam again with same client
             # -------------------- Enable back 802.11r --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
 
             # -------------------- Attenuator State --------------------
@@ -5952,9 +5943,9 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Enable 802.11k/v/r --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -6171,9 +6162,9 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -6402,9 +6393,9 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -6632,9 +6623,9 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                           enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -6944,9 +6935,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                           enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -7484,9 +7475,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                           enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -7728,9 +7719,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                           enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -7972,9 +7963,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -8213,9 +8204,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Enable 802.11kvr --------------------
-            get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                                                                            enable_11k=True,
-                                                                            enable_11v=True)
+            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
+            #                                                                 enable_11k=True,
+            #                                                                 enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
