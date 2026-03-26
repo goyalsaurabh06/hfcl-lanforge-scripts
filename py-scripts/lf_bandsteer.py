@@ -1557,7 +1557,7 @@ class BandSteer(Realm):
         print(f'Resource ip for given resource {resource} : {valid_ips}')
         return valid_ips
 
-    def start_sniffer(self, ssid, password, security):
+    def start_sniffer(self):
         if not self.combined_sniff:
             self.pcap_obj_2 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="5180",

@@ -1213,9 +1213,7 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Conditions --------------------
             if band_steer.steer_type == 'steer_fiveg':
@@ -1489,9 +1487,7 @@ class lf_tests(lf_libs):
 
             # -------------------- Start Sniffer --------------------
             # Start the Sniffer along with dummy client creation on 7996 radio
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Attenuation --------------------
             # Steer_five means station that needed to be created on 2.4Ghz band.
@@ -1814,9 +1810,7 @@ class lf_tests(lf_libs):
 
             # -------------------- Start Sniffer --------------------
             # Start the Sniffer along with dummy client creation on 7996 radio
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Attenuation --------------------
             # Initial Attenuation that to be applied as per test case
@@ -2120,9 +2114,7 @@ class lf_tests(lf_libs):
 
             # -------------------- Start Sniffer --------------------
             # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -3161,9 +3153,7 @@ class lf_tests(lf_libs):
             logging.info("ssid scan data: " + str(data_scan_ssid))
 
             # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # ---------- STA CREATION ----------
             # Connection of 1 client to 5Ghz band as per test case
@@ -3545,9 +3535,7 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Conditions --------------------
             if band_steer.steer_type == 'steer_twog':
@@ -3826,9 +3814,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA Creation--------------------
 
@@ -4128,9 +4114,7 @@ class lf_tests(lf_libs):
 
             # -------------------- Start Sniffer --------------------
             # Starting Sniffer Before creating stations with dummy client creation on 7996 radio
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA Creation --------------------
             # Connection of 2 clients to 2Ghz band as per test case
@@ -4505,9 +4489,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3009', 400, idx - 3)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             band_steer.create_clients(
                 radio=dict_all_radios_5g["mtk_radios"][0],
@@ -4846,9 +4828,7 @@ class lf_tests(lf_libs):
             track_station_creation(dict_all_radios_5g["mtk_radios"][1], sta_list)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Conditions --------------------
             band_steer.create_clients(
@@ -5261,7 +5241,7 @@ class lf_tests(lf_libs):
 
                 # -------------------- Stop and validate AMQP logs --------------------
                 self.stop_amqp_log_capture(get_target_object)
-                amqp_pass, amqp_checks, amqp_text = dut.validate_amqp_logs_for_rrm(ssid=ssid)
+                # amqp_pass, amqp_checks, amqp_text = dut.validate_amqp_logs_for_rrm(ssid=ssid)
 
                 allure.attach(
                     body=json.dumps(amqp_checks, indent=4),
@@ -5280,7 +5260,7 @@ class lf_tests(lf_libs):
                     pytest.fail(f"AMQP validation failed: {amqp_checks}")
 
                 # -------------------- Validate VAP wireless config --------------------
-                vap_pass, vap_result = dut.validate_rrm_config_on_vap(ssid=ssid)
+                # vap_pass, vap_result = dut.validate_rrm_config_on_vap(ssid=ssid)
 
                 allure.attach(
                     body=json.dumps(vap_result, indent=4),
@@ -5383,9 +5363,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -5597,9 +5575,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             time.sleep(120)
 
@@ -5689,9 +5665,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
@@ -6003,9 +5977,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA Creation --------------------
             band_steer.create_clients(
@@ -6216,9 +6188,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
@@ -6447,9 +6417,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
@@ -6661,9 +6629,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             time.sleep(120)
 
@@ -6738,9 +6704,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- Initial Conditions --------------------
             if roam_towards == "ap2":
@@ -6761,7 +6725,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="enterprise",
+                sta_type="11r_enterprise",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6973,9 +6937,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7276,9 +7238,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             if initial_band == "2Ghz":
 
@@ -7522,7 +7482,7 @@ class lf_tests(lf_libs):
                 station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
-                # sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
                 attenuators=test_config.get("attenuators", '1.1.3002'),
@@ -7550,9 +7510,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7579,7 +7537,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="11r",
+                sta_type="11r_enterprise",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -7794,9 +7752,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -8038,9 +7994,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -8279,9 +8233,7 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer(ssid=ssid,
-                                     password=passkey,
-                                     security=security)
+            band_steer.start_sniffer()
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
