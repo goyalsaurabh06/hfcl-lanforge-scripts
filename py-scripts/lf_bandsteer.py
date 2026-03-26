@@ -1123,6 +1123,17 @@ class BandSteer(Realm):
             self.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
                                                 psk=passwd)
 
+        if sta_type == "11r_enterprise":
+            self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
+            self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
+            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
+                                                psk=passwd)
+            self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
+            self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
+                                                identity="user",
+                                                eap="TTLS",
+                                                passwd="password",
+                                                )
         if sta_type == "11r-sae":
             self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
