@@ -1103,9 +1103,9 @@ class BandSteer(Realm):
         if sta_type == "enterprise":
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
-                                                identity = "user",
+                                                identity = "testuser",
                                                 eap="TTLS",
-                                                passwd = "password",
+                                                passwd = "testpasswd",
                                                 )
         if sta_type == "11r":
             # self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
@@ -1130,9 +1130,9 @@ class BandSteer(Realm):
                                                 psk=passwd)
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
-                                                identity="user",
+                                                identity="testuser",
                                                 eap="TTLS",
-                                                passwd="password",
+                                                passwd="testpasswd",
                                                 )
         if sta_type == "11r-sae":
             self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
