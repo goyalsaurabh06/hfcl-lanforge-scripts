@@ -5140,6 +5140,36 @@ class lf_tests(lf_libs):
 
         return all(checks.values()), checks, text
 
+    def set_channel(dut_obj, band):
+        """
+        Set channel for a given band using UCI.
+
+        Args:
+            dut_obj: DUT object (for running commands)
+            band (str): "2g" or "5g"
+        """
+
+        if band.lower() == "2g":
+            radio = "radio0"  # usually 2.4 GHz
+            channel = 4
+        elif band.lower() == "5g":
+            radio = "radio1"  # usually 5 GHz
+            channel = 157
+        else:
+            raise ValueError("band must be '2g' or '5g'")
+
+        # Set channel
+        dut_obj.run_generic_command(
+            cmd=f"uci set wireless.{radio}.channel={channel}"
+        )
+
+        # Commit & reload
+        dut_obj.run_generic_command(cmd="uci commit wireless")
+        dut_obj.run_generic_command(cmd="wifi reload")
+
+        print(f"{band.upper()} channel set to {channel}")
+        time.sleep(10)
+
     def run_roam_test(
             self,
             ssid,
@@ -7177,6 +7207,11 @@ class lf_tests(lf_libs):
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
+            expected_band = test_config.get("expected_band")
+            channel_condition = test_config.get("channel_condition")
+
+            if channel_condition == "different":
+                self.set_channel(dut_obj=get_target_object.dut_library_object, band=expected_band)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7366,8 +7401,6 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            expected_band = test_config.get("expected_band")
-            channel_condition = test_config.get("channel_condition")
 
             for sta, result in test_results.items():
 
