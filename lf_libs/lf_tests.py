@@ -7211,7 +7211,41 @@ class lf_tests(lf_libs):
             channel_condition = test_config.get("channel_condition")
 
             if channel_condition == "different":
-                self.set_channel(dut_obj=get_target_object.dut_library_object, band=expected_band)
+                if expected_band.lower() == "2g":
+                    radio = "wifi1"
+                    channel = 4
+                elif expected_band.lower() == "5g":
+                    radio = "wifi0"
+                    channel = 157
+                else:
+                    raise ValueError("expected_band must be '2g' or '5g'")
+
+                # Set channel
+                dut = get_target_object.dut_library_object
+
+                dut.run_generic_command(cmd=f"uci set wireless.{radio}.channel={channel}")
+                dut.run_generic_command(cmd="uci commit wireless")
+                dut.run_generic_command(cmd="wifi reload")
+
+                time.sleep(15)
+
+                # Verify via UCI
+                output = dut.run_generic_command(cmd=f"uci get wireless.{radio}.channel")
+                current_channel = str(output).strip().splitlines()[-1]
+
+                print(f"[UCI] Channel set: {current_channel}")
+
+                if str(current_channel) != str(channel):
+                    raise Exception(f"UCI mismatch! Expected {channel}, got {current_channel}")
+
+                # Verify actual radio
+                iw_output = dut.run_generic_command(cmd="iw dev")
+                print(f"[IW OUTPUT]\n{iw_output}")
+
+                if str(channel) not in str(iw_output):
+                    raise Exception(f"Radio not operating on channel {channel}")
+
+                print(f"Channel {channel} successfully set on {radio}")
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
