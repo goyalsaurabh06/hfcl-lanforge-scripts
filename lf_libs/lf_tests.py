@@ -1192,7 +1192,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -1460,7 +1460,7 @@ class lf_tests(lf_libs):
                 initial_band_pref="5GHz",
                 traffic="download"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -1784,7 +1784,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -2111,7 +2111,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 0, idx - 3)
@@ -2419,7 +2419,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             overall_status = "PASS"
@@ -2722,7 +2722,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- SSID Scan results --------------------
@@ -3148,7 +3148,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # ---------- Initial Attenuation ----------
             for idx in range(3, 5):
@@ -3519,7 +3519,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- QVLAN Creation --------------------
@@ -3802,7 +3802,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- QVLAN Creation --------------------
@@ -4115,7 +4115,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 400, idx - 3)
@@ -4423,7 +4423,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Management VLAN Creation --------------------
             idx = 0
@@ -4770,7 +4770,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- Management VLAN Creation --------------------
@@ -5208,7 +5208,7 @@ class lf_tests(lf_libs):
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0]
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             try:
@@ -5335,7 +5335,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Initial Attenuation --------------------
 
@@ -5548,7 +5548,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Initial Attenuation --------------------
 
@@ -5624,7 +5624,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # TODO: Disable 802.11r from given SSID
@@ -5935,7 +5935,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- Start AMQP Log Capture --------------------
@@ -6156,7 +6156,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -6201,7 +6201,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="11r",
+                sta_type="11r_enterprise",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6387,7 +6387,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -6619,7 +6619,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- Enable 802.11kvr --------------------
@@ -6687,7 +6687,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- STA Creation --------------------
@@ -6927,7 +6927,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
@@ -6972,7 +6972,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="11r",
+                sta_type="11r_enterprise",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -7175,7 +7175,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
 
             # -------------------- STA name series --------------------
@@ -7467,7 +7467,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
@@ -7711,7 +7711,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
@@ -7955,7 +7955,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
@@ -8196,7 +8196,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            get_target_object.dut_library_object.get_radio_mac_addresses()
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
