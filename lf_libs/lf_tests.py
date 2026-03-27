@@ -7779,7 +7779,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="11r",
+                sta_type="11r_enterprise",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -8108,7 +8108,15 @@ class lf_tests(lf_libs):
 
             # -------------------- Stop Traffic --------------------
             band_steer.stop_traffic_cx()
+            allure.attach(
+                body=json.dumps(getattr(band_steer.traffic_cx_profile, "traffic_data", {}), indent=4),
+                name="Layer3 Traffic Data",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # Clean up traffic cross-connections
             band_steer.clean_traffic_cx()
+            print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
             # -------------------- Stop and validate AMQP logs --------------------
             self.stop_amqp_log_capture(get_target_object)
@@ -8347,7 +8355,15 @@ class lf_tests(lf_libs):
 
             # -------------------- Stop Traffic --------------------
             band_steer.stop_traffic_cx()
+            allure.attach(
+                body=json.dumps(getattr(band_steer.traffic_cx_profile, "traffic_data", {}), indent=4),
+                name="Layer3 Traffic-2 Data from AP to STA1 Iteration-2",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # Clean up traffic cross-connections
             band_steer.clean_traffic_cx()
+            print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
             # -------------------- Stop and validate AMQP logs --------------------
             self.stop_amqp_log_capture(get_target_object)
