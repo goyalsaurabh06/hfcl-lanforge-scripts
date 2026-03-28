@@ -5120,36 +5120,6 @@ class lf_tests(lf_libs):
 
         return all(checks.values()), checks, text
 
-    def set_channel(dut_obj, band):
-        """
-        Set channel for a given band using UCI.
-
-        Args:
-            dut_obj: DUT object (for running commands)
-            band (str): "2g" or "5g"
-        """
-
-        if band.lower() == "2g":
-            radio = "radio0"  # usually 2.4 GHz
-            channel = 4
-        elif band.lower() == "5g":
-            radio = "radio1"  # usually 5 GHz
-            channel = 157
-        else:
-            raise ValueError("band must be '2g' or '5g'")
-
-        # Set channel
-        dut_obj.run_generic_command(
-            cmd=f"uci set wireless.{radio}.channel={channel}"
-        )
-
-        # Commit & reload
-        dut_obj.run_generic_command(cmd="uci commit wireless")
-        dut_obj.run_generic_command(cmd="wifi reload")
-
-        print(f"{band.upper()} channel set to {channel}")
-        time.sleep(10)
-
     def run_roam_test(
             self,
             ssid,
@@ -5941,6 +5911,35 @@ class lf_tests(lf_libs):
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
+            radio = "wifi0"
+            channel = 149
+
+            # Set channel
+            dut = get_target_object.dut_library_object
+
+            dut.run_generic_command(cmd=f"uci set wireless.{radio}.channel={channel}")
+            dut.run_generic_command(cmd="uci commit wireless")
+            dut.run_generic_command(cmd="wifi reload")
+
+            time.sleep(15)
+
+            # Verify via UCI
+            output = dut.run_generic_command(cmd=f"uci get wireless.{radio}.channel")
+            current_channel = str(output).strip().splitlines()[-1]
+
+            print(f"[UCI] Channel set: {current_channel}")
+
+            if str(current_channel) != str(channel):
+                raise Exception(f"UCI mismatch! Expected {channel}, got {current_channel}")
+
+            # Verify actual radio
+            iw_output = dut.run_generic_command(cmd="iw dev")
+            print(f"[IW OUTPUT]\n{iw_output}")
+
+            if str(channel) not in str(iw_output):
+                raise Exception(f"Radio not operating on channel {channel}")
+
+            print(f"Channel {channel} successfully set on {radio}")
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
