@@ -5498,7 +5498,75 @@ class lf_tests(lf_libs):
 
             return 'PASS', "Captured Sniffer pcap"
 
-        # 03 04
+        # 03
+        if test_type == "verify_bsst":
+            """
+                TC_K-V_03 : Enable the BSS Transition and verify the beacon
+            """
+            band_steer = BandSteer(
+                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
+                port=get_testbed_details.get("port", 8080),
+                ssid=ssid,
+                security=security,
+                password=passkey,
+                num_sta=num_sta,
+                test_type=test_type,
+                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
+                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
+                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
+                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
+                attenuators=test_config.get("attenuators", '1.1.3002'),
+                set_max_attenuators=test_config.get("set_max_attenuators", None),
+                step=test_config.get("step", 5),
+                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                wait_time=test_config.get("wait_time", 10),
+                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
+                initial_band_pref="5GHz"
+            )
+            # get_target_object.dut_library_object.get_radio_mac_addresses()
+
+            # -------------------- Initial Attenuation --------------------
+
+            for idx in range(3, 5):
+                band_steer.set_atten('1.1.3009', 900, idx - 3)
+                band_steer.set_atten('1.1.3002', 900, idx - 1)
+                band_steer.set_atten('1.1.3002', 0, idx - 3)
+
+            # -------------------- Start AMQP Log Capture --------------------
+            self.start_amqp_log_capture(get_target_object)
+
+            # -------------------- Start Sniffer --------------------
+            band_steer.start_sniffer()
+
+            time.sleep(60)
+
+            # -------------------- Stop and validate AMQP logs --------------------
+            self.stop_amqp_log_capture(get_target_object)
+
+            # -------------------- Stop Sniffer --------------------
+            local_pcap = band_steer.stop_sniffer()
+
+            try:
+                with open(local_pcap, "rb") as f:
+                    allure.attach(
+                        f.read(),
+                        name="Roaming Sniffer Capture",
+                        attachment_type=allure.attachment_type.PCAP
+                    )
+            except Exception as e:
+                print("Allure attach failed:", e)
+
+            # Collect supplicant logs for each radio
+            for radio, stations in station_radio_map.items():
+                if stations:
+                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+            return 'PASS', "Captured Sniffer pcap"
+
+        # 04
         if test_type == "verify_sniffer_pcap":
             """
                 TC_K-V_04 : Verify the Load Balancing request—If an AP is heavily loaded, it sends out an 802.11v BSS Transition Management Request to an associated client.
