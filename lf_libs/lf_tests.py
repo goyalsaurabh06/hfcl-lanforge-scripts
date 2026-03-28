@@ -5547,7 +5547,125 @@ class lf_tests(lf_libs):
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
 
-            time.sleep(120)
+            # -------------------- STA name series --------------------
+            sta_list = band_steer.get_sta_list_before_creation(
+                num_sta=5,
+                radio=dict_all_radios_5g["mtk_radios"][0])
+            print(f"[DEBUG] Station List: {sta_list}")
+
+            # Clean up if there are already existing station with same name
+            band_steer.pre_cleanup(sta_list)
+
+            band_steer.station_list = sta_list
+
+            # Track station-radio mapping
+            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
+
+            # -------------------- STA Creation --------------------
+            band_steer.create_clients(
+                radio=dict_all_radios_5g["mtk_radios"][0],
+                ssid=ssid,
+                passwd=passkey,
+                security=security,
+                station_list=sta_list,
+                station_flag="use-bss-transition",
+                sta_type="11r",
+                initial_band_pref="5GHz",
+                option=None
+            )
+
+            # -------------------- Validate Initial Band --------------------
+            band_steer.get_station_ips()
+            ip_text = ""
+            for station, ip in band_steer.station_ips.items():
+                ip_text += f"{station} : {ip}\n"
+
+            allure.attach(
+                ip_text,
+                name="virtual client IP mapping",
+                attachment_type=allure.attachment_type.TEXT
+            )
+            before_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
+            before_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
+            before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
+
+            # -------------------- Station MAC Map --------------------
+            mac_dict = band_steer.get_mac(station_list=sta_list)
+
+            allure.attach(
+                body=json.dumps(mac_dict, indent=4),
+                name="Station_MAC_Map",
+                attachment_type=allure.attachment_type.JSON
+            )
+            before_state = {}
+
+            for sta in sta_list:
+                before_state[sta] = {
+                    "bssid": before_bssid.get(sta),
+                    "channel": before_chan.get(sta),
+                    "rssi": before_rssi.get(sta)
+                }
+            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            allure.attach(
+                body=json.dumps(before_state, indent=4),
+                name="Before Roam Station BSSID & Channel",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # -------------------- Start Continues Ping --------------------
+            band_steer.create_ping_cx(station_list=sta_list)
+            band_steer.start_ping_cx()
+
+            time.sleep(30)
+            band_steer.stop_ping_cx()
+            ping_status = band_steer.check_connectivity(band_steer.ping_cx_profile)
+
+            allure.attach(
+                body=json.dumps(getattr(band_steer.ping_cx_profile, "traffic_data", {}), indent=4),
+                name="Station Connectivity Check",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            band_steer.clean_ping_cx()
+            print(f"[DEBUG] Traffic data : {band_steer.ping_cx_profile.traffic_data}")
+
+            # -------------------- Ping Status --------------------
+            print(f"[DEBUG] Connectivity status : {ping_status}")
+            if not ping_status:
+                pytest.fail(f"[Status] {ping_status}: Station are not pinging each other")
+
+            print(f"[DEBUG] Starting TCP Traffic on station {sta_list}")
+            band_steer.create_specific_cx(station_list=sta_list, tos='VO')
+            band_steer.start_traffic_cx()
+
+            # -------------------- Trigger Steering --------------------
+            # start_time, end_time = band_steer.roam_test_standard(
+            #     attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
+
+            # print(f"[DEBUG] Start Time : {start_time}")
+            # print(f"[DEBUG] End Time : {end_time}")
+
+            # -------------------- Validate Steering --------------------
+            # after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
+            # after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
+            # after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
+
+            # -------------------- Attenuator State --------------------
+            # attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
+
+            # -------------------- Stop Traffic --------------------
+            band_steer.stop_traffic_cx()
+            allure.attach(
+                body=json.dumps(getattr(band_steer.traffic_cx_profile, "traffic_data", {}), indent=4),
+                name="Layer3 Traffic Data from AP Iteration",
+                attachment_type=allure.attachment_type.JSON
+            )
+            # Clean up traffic cross-connections
+            band_steer.clean_traffic_cx()
+            print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
             # -------------------- Stop and validate AMQP logs --------------------
             self.stop_amqp_log_capture(get_target_object)
