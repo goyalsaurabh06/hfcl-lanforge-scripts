@@ -5576,7 +5576,7 @@ class lf_tests(lf_libs):
         # 05
         elif test_type == "11r_over_11kvr":
             """
-                TC_K-V_5 : Test to validate romaing when 802.11R is disabled and 802.11K/V are enabled over 802.11KVR all are enabled
+                TC_K-V_5 : Test to validate roaming when 802.11R is disabled and 802.11K/V are enabled over 802.11KVR all are enabled
             """
             band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
@@ -5710,7 +5710,7 @@ class lf_tests(lf_libs):
 
             test_results = {}
             after_state = {}
-
+            dut = None
             for sta in sorted(stations):
                 test_results[sta] = {
                     "before_bssid": before_bssid.get(sta),
@@ -5744,6 +5744,28 @@ class lf_tests(lf_libs):
             #                                                                 enable_11k=True,
             #                                                                 enable_11v=True)
 
+            # Enable 11r on all VAPs
+            dut = get_target_object.dut_library_object
+
+            vap_list = dut.get_vap_list(enabled_only=True)
+
+            if not vap_list:
+                raise Exception("No VAPs found")
+
+            for vap in vap_list:
+                print(f"Configuring 11r on {vap}")
+
+                # --------------------
+                # SET CONFIG
+                # --------------------
+                dut.run_generic_command(cmd=f"uci set wireless.{vap}.ieee80211r='1'")
+                dut.run_generic_command(cmd=f"uci set wireless.{vap}.mobility_domain='1234'")
+
+            # Commit once (like best practice)
+            dut.run_generic_command(cmd="uci commit wireless")
+            dut.run_generic_command(cmd="wifi reload")
+
+            time.sleep(15)
 
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
