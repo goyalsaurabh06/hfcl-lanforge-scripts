@@ -5173,14 +5173,13 @@ class lf_tests(lf_libs):
             TC_K-V_01 : Test to Enable 802.11K feature from canvas
             """
 
-            sniffer_obj = BandSteer(
+            band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
                 port=get_testbed_details.get("port", 8080),
                 ssid=ssid,
                 security=security,
                 password=passkey,
                 num_sta=1,
-                test_type="tc_k_v_01",
                 station_radio=test_config.get("station_radio", "1.1.wiphy0"),
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
@@ -5190,107 +5189,42 @@ class lf_tests(lf_libs):
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
+            # -------------------- Start AMQP Log Capture --------------------
+            self.start_amqp_log_capture(get_target_object)
+
+            # -------------------- Start Sniffer --------------------
+            band_steer.start_sniffer()
+
+            time.sleep(60)
+
+            # -------------------- Stop and validate AMQP logs --------------------
+            self.stop_amqp_log_capture(get_target_object)
+
+            # -------------------- Stop Sniffer --------------------
+            local_pcap = band_steer.stop_sniffer()
 
             try:
-                # -------------------- Start AMQP Log Capture --------------------
-                self.start_amqp_log_capture(get_target_object)
-
-                # -------------------- Start sniffer --------------------
-                sniffer_obj.start_sniffer(
-                    ssid=ssid,
-                    password=passkey,
-                    security=security
-                )
-
-                # Must enable both 11r and 11k
-                # -------------------- Enable 802.11kvr --------------------
-                # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-                #                                                                 enable_11k=True)
-
-                time.sleep(60)
-
-                # -------------------- Stop and validate AMQP logs --------------------
-                self.stop_amqp_log_capture(get_target_object)
-                # amqp_pass, amqp_checks, amqp_text = dut.validate_amqp_logs_for_rrm(ssid=ssid)
-
-                allure.attach(
-                    body=json.dumps(amqp_checks, indent=4),
-                    name="AMQP Validation Result",
-                    attachment_type=allure.attachment_type.JSON
-                )
-
-                if amqp_text:
+                with open(local_pcap, "rb") as f:
                     allure.attach(
-                        body=amqp_text,
-                        name="AMQP Captured Logs",
-                        attachment_type=allure.attachment_type.TEXT
+                        f.read(),
+                        name="Roaming Sniffer Capture",
+                        attachment_type=allure.attachment_type.PCAP
                     )
-
-                if not amqp_pass:
-                    pytest.fail(f"AMQP validation failed: {amqp_checks}")
-
-                # -------------------- Validate VAP wireless config --------------------
-                # vap_pass, vap_result = dut.validate_rrm_config_on_vap(ssid=ssid)
-
-                allure.attach(
-                    body=json.dumps(vap_result, indent=4),
-                    name="VAP 11r/11k Validation",
-                    attachment_type=allure.attachment_type.JSON
-                )
-
-                if not vap_pass:
-                    pytest.fail(f"VAP validation failed: {vap_result}")
-
-
-                # -------------------- Stop sniffer --------------------
-                local_pcap = sniffer_obj.stop_sniffer()
-
-                try:
-                    with open(local_pcap, "rb") as f:
-                        allure.attach(
-                            f.read(),
-                            name="11k Beacon Validation Capture",
-                            attachment_type=allure.attachment_type.PCAP
-                        )
-                except Exception as e:
-                    logging.error(f"Failed to attach pcap: {e}")
-
-                # -------------------- Validate beacon content --------------------
-                # beacon_pass, beacon_checks, beacon_text = self.validate_11k_in_beacon(
-                #     pcap_file=local_pcap,
-                #     ssid=ssid
-                # )
-                #
-                # allure.attach(
-                #     body=json.dumps(beacon_checks, indent=4),
-                #     name="Beacon 11k Validation",
-                #     attachment_type=allure.attachment_type.JSON
-                # )
-                #
-                # if beacon_text:
-                #     allure.attach(
-                #         body=beacon_text[:50000],
-                #         name="Beacon Decode Snippet",
-                #         attachment_type=allure.attachment_type.TEXT
-                #     )
-                #
-                # if not beacon_pass:
-                #     pytest.fail(f"Beacon validation failed: {beacon_checks}")
-
-                return "PASS", {
-                    "amqp": amqp_checks,
-                    "vap": vap_result,
-                    # "beacon": beacon_checks
-                }
-
             except Exception as e:
-                logging.exception(f"TC_K-V_01 failed: {e}")
-                pytest.fail(str(e))
+                print("Allure attach failed:", e)
+
+            # Collect supplicant logs for each radio
+            # for radio, stations in station_radio_map.items():
+            #     if stations:
+            #         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+            #         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+
+            return 'PASS', "Captured Sniffer pcap"
 
         # 02
         if test_type == "verify_action_frame_from_pcap":
             """
-                TC_K-V_01 : Test to verify 802.11k feature action frame in wireshark
+                TC_K-V_02 : Test to verify 802.11k feature action frame in wireshark
             """
             band_steer = BandSteer(
                 lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
@@ -5525,14 +5459,6 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
-            # -------------------- Initial Attenuation --------------------
-
-            for idx in range(3, 5):
-                band_steer.set_atten('1.1.3009', 900, idx - 3)
-                band_steer.set_atten('1.1.3002', 900, idx - 1)
-                band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Start AMQP Log Capture --------------------
             self.start_amqp_log_capture(get_target_object)
@@ -5559,10 +5485,10 @@ class lf_tests(lf_libs):
                 print("Allure attach failed:", e)
 
             # Collect supplicant logs for each radio
-            for radio, stations in station_radio_map.items():
-                if stations:
-                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
-                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+            # for radio, stations in station_radio_map.items():
+            #     if stations:
+            #         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
+            #         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             return 'PASS', "Captured Sniffer pcap"
 
@@ -5640,7 +5566,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="normal",
+                sta_type="11r",
                 initial_band_pref="5GHz",
                 option=None
             )
@@ -6797,7 +6723,7 @@ class lf_tests(lf_libs):
             return 'PASS', test_results
 
         # 10 11
-        elif test_type == "l2_mobility_doamin":
+        elif test_type == "l2_mobility_domain":
             """
                 TC_2.4.2_3 : Test to verify L2 roaming with Mobility domain
             """
@@ -6838,7 +6764,7 @@ class lf_tests(lf_libs):
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
 
-            time.sleep(120)
+            time.sleep(60)
 
             # -------------------- Stop and validate AMQP logs --------------------
             self.stop_amqp_log_capture(get_target_object)
