@@ -5572,7 +5572,7 @@ class lf_tests(lf_libs):
                 security=security,
                 station_list=sta_list,
                 station_flag="use-bss-transition",
-                sta_type="11r",
+                sta_type="normal",
                 initial_band_pref="5GHz",
                 option=None
             )
