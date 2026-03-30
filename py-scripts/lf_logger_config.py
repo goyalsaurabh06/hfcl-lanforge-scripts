@@ -90,8 +90,8 @@ class lf_logger_config:
         #                    format='%(created)-16f %(name)-8s %(levelname)-12s  %(lineno)-6s %(funcName)-30s [%(module)s]: %(message)s')
         # Note the propagate is tricky in the sence if not set correctly will create duplicate logs output,
         # setting to false
-        logging.propagate = False
-        print(logging.propagate)
+        logging.getLogger().propagate = True
+        #print(logging.propagate)
 
     def set_json(self, json_file):
         if json_file:
@@ -132,8 +132,8 @@ class lf_logger_config:
     # This is left in for now to show another example of formatting.
     def set_asctime(self):
         # we need to remove the handler if using basicConfig and support python 3.7,  3.8 had force = True
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
+        # for handler in logging.root.handlers[:]:
+        #     logging.root.removeHandler(handler)
         logging.basicConfig(handlers=[logging.StreamHandler(stream=sys.stdout)], level=logging.DEBUG,
                             format='%(asctime)-16s %(name)-8s %(levelname)-12s  %(lineno)-6s %(funcName)-30s [%(module)s]: %(message)s')
         print(logger.getEffectiveLevel())  # Check what level of messages will be shown
