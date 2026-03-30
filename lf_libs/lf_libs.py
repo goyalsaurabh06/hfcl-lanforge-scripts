@@ -1324,6 +1324,7 @@ class lf_libs:
         a = [item for item in a if 'logo' not in item]
         a = [item for item in a if 'Logo' not in item]
         a = [item for item in a if 'candela' not in item]
+        a = [item for item in a if 'banner' not in item]
 
         a.sort()
         for i in a:
