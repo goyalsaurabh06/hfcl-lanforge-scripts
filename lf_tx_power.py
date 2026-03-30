@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
+# flake8: noqa
 '''
 NAME: lf_tx_power
 
@@ -32,7 +33,6 @@ COPYRIGHT:
 INCLUDE_IN_README
 '''
 
-
 import math
 import xlsxwriter
 import subprocess
@@ -46,28 +46,44 @@ import datetime
 import importlib
 import os
 import traceback
-sys.path.append(os.path.join(os.path.abspath(__file__ + "../../")))
+import paramiko
+import pandas as pd
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# add project dirs so "py-scripts." and "py-json." imports work
+sys.path.insert(0, BASE_DIR)
+sys.path.insert(0, os.path.join(BASE_DIR, "py_scripts"))
+sys.path.insert(0, os.path.join(BASE_DIR, "py_json"))
+print("BASE_DIR",BASE_DIR)
+print("os.listdir(BASE_DIR)", os.listdir(BASE_DIR))
+os.environ["PATH"] = BASE_DIR + os.pathsep + os.environ.get("PATH", "")
+
+
+# fix all .pl relative calls
+#os.chdir(BASE_DIR)
 
 # TODO change the name from logg to logger
 # to match consistency with other files.
 logger = logging.getLogger(__name__)
-lf_logger_config = importlib.import_module("py-scripts.lf_logger_config")
-lf_report = importlib.import_module("py-scripts.lf_report")
-lf_kpi_csv = importlib.import_module("py-scripts.lf_kpi_csv")
-
+lf_logger_config = importlib.import_module("py_scripts.lf_logger_config")
+lf_report = importlib.import_module("py_scripts.lf_report")
+lf_kpi_csv = importlib.import_module("py_scripts.lf_kpi_csv")
+lf_modify_radio = importlib.import_module("py_scripts.lf_modify_radio")
+LFUtils = importlib.import_module("py_json.LANforge.LFUtils")
 
 EPILOG = '''\
 
 #############################################################################################
-# RSSI adjust 
+# RSSI adjust
 
-be root  
+be root
 sudo -s
 
-manually disable it run-time by echo-ing a zero to the debugfs file, like: 
+manually disable it run-time by echo-ing a zero to the debugfs file, like:
 echo 0 > /debug/ieee80211/wiphy0/ath10k/ofdm_peak_power_rssi
 
-manually enable 
+manually enable
 echo 1 > /debug/ieee80211/wiphy0/ath10k/ofdm_peak_power_rssi
 
 /* QCA seems to report a max-power average over the bandwidth, where mtk and intel radios
@@ -92,7 +108,7 @@ const int adjust_24[4] = {8, 4, 3, 3};
 const int adjust_5[4] = {12, 12, 10, 10};
 const int adjust_zero[4] = {0, 0, 0, 0};
 
-note the second collumn, that is what we calculate from actual received peak OFDM power, 
+note the second collumn, that is what we calculate from actual received peak OFDM power,
 but I was not sure we'd want to go that far, so intead I tried to make it match ax210 and mtk7915
 
 ##############################################################################################
@@ -317,7 +333,6 @@ if sys.version_info[0] != 3:
     print("This script requires Python 3")
     exit()
 
-
 NL = "\n"
 CR = "\r\n"
 Q = '"'
@@ -356,6 +371,8 @@ failed_low_threshold = 0
 # This below is only used when --adjust_nf is used.
 # Noise floor on ch 36 where we calibrated -54 path loss (based on hard-coded -95 noise-floor in driver)
 nf_at_calibration = -105
+
+
 # older ath10k driver hard-codes noise-floor to -95 when calculating RSSI
 # RSSI = NF + reported_power
 # Shift RSSI by difference in actual vs calibrated noise-floor since driver hard-codes
@@ -366,6 +383,8 @@ nf_at_calibration = -105
 
 def usage():
     print("Incorrect inputs:  ./lf_tx_power.py --help to show usage ")
+
+
 #
 # see https://stackoverflow.com/a/13306095/11014343
 
@@ -390,7 +409,10 @@ def close_workbook(workbook):
     workbook.close()
     sleep(0.5)
 
-def main():
+
+def main(tx_config=None, target_object=None, dut_obj=None):
+    dut = dut_obj
+    hfcl_target = target_object
     global lfmgr
     global lfstation
     global lfresource
@@ -402,121 +424,259 @@ def main():
     global pf_dbm
     global pf_ignore_offset
     global failed_low_threshold
+    client_info_list = []
 
     parser = argparse.ArgumentParser(description="Cisco TX Power report Script", epilog=EPILOG,
                                      formatter_class=argparse.RawTextHelpFormatter)
 
     # controller configuration
-    parser.add_argument("-s", "--scheme", type=str, choices=["serial", "ssh", "telnet"], help="[controller configuration] Connect via serial, ssh or telnet --scheme ssh", required=True)
-    parser.add_argument("-d", "--controller_ip", "--dest", dest="dest", type=str, help="[controller configuration] address of the controller --dest localhost", required=True)
-    parser.add_argument("-o", "--port", type=str, help="[controller configuration] controller port on the controller --port 8887", required=True)
-    parser.add_argument("-u", "--user", type=str, help="[controller configuration] controller login/username --user admin", required=True)
-    parser.add_argument("-p", "--passwd", type=str, help="[controller configuration] credential password --passwd Cisco123", required=True)
-    parser.add_argument('-ccp', '--prompt', type=str, help="[controller configuration] controller prompt --prompt WLC1", required=True)
-    parser.add_argument("--series", type=str, help="[controller configuration] controller series --series 9800", required=True)
-    parser.add_argument("--band", type=str, help="band testing --band 6g", choices=["5g", "24g", "6g", "dual_band_5g", "dual_band_6g"])
-    parser.add_argument("--module", type=str, help="[controller configuration] series module (cc_module_9800_3504.py)  --module cc_module_9800_3504 ", required=True)
-    parser.add_argument("--timeout", type=str, help="[controller configuration] controller command timeout --timeout 3 ", default=3)
+    parser.add_argument("-s", "--scheme", type=str, choices=["serial", "ssh", "telnet"],
+                        help="[controller configuration] Connect via serial, ssh or telnet --scheme ssh", required=True)
+    parser.add_argument("-d", "--controller_ip", "--dest", dest="dest", type=str,
+                        help="[controller configuration] address of the controller --dest localhost", required=True)
+    parser.add_argument("-o", "--port", type=str,
+                        help="[controller configuration] controller port on the controller --port 8887", required=True)
+    parser.add_argument("-u", "--user", type=str,
+                        help="[controller configuration] controller login/username --user admin", required=True)
+    parser.add_argument("-p", "--passwd", type=str,
+                        help="[controller configuration] credential password --passwd Cisco123", required=True)
+    parser.add_argument('-ccp', '--prompt', type=str, help="[controller configuration] controller prompt --prompt WLC1",
+                        required=True)
+    parser.add_argument("--series", type=str, help="[controller configuration] controller series --series 9800",
+                        required=True)
+    parser.add_argument("--band", type=str, help="band testing --band 6g",
+                        choices=["5g", "24g", "6g", "dual_band_5g", "dual_band_6g"])
+    parser.add_argument("--module", type=str,
+                        help="[controller configuration] series module (cc_module_9800_3504.py)  --module cc_module_9800_3504 ",
+                        required=True)
+    parser.add_argument("--module_scrapli",
+                        help="[controller configuration] the module is a scrapli module so needs lanforge information for jump host ",
+                        action='store_true')
+    parser.add_argument("--timeout", type=str,
+                        help="[controller configuration] controller command timeout --timeout 3 ", default=3)
 
     # AP configuration
     parser.add_argument("-a", "--ap", type=str, help="[AP configuration] select AP  ", required=True)
-    parser.add_argument("--ap_dual_band_slot_6g", type=str, help="[AP configuration] --ap_dual_band_slot_6g 2 , 9800 AP dual-band slot , for 6g dual-band use show ap dot11 dual-band summary", default='2')
-    parser.add_argument("--ap_dual_band_slot_5g", type=str, help="[AP configuration] --ap_dual_band_slot_5g 2 , 9800 AP dual-band slot , for 5g dual-band use show ap dot11 dual-band summary", default='2')
-    parser.add_argument("--ap_band_slot_6g", type=str, help="[AP configuration] --ap_band_slot_6g 2 , 9800 AP band slot , use show ap dot11 6ghz summary", default='2')
-    parser.add_argument("--ap_band_slot_5g", type=str, help="[AP configuration] --ap_band_slot_5g 1 , 9800 AP band slot , use show ap dot11 5ghz summary", default='1')
-    parser.add_argument("--ap_band_slot_24g", type=str, help="[AP configuration] --ap_band_slot_24g 0 , 9800 AP band slot , use show ap dot11 24ghz summary", default='0')
+    parser.add_argument("--ap_dual_band_slot_6g", type=str,
+                        help="[AP configuration] --ap_dual_band_slot_6g 2 , 9800 AP dual-band slot , for 6g dual-band use show ap dot11 dual-band summary",
+                        default='2')
+    parser.add_argument("--ap_dual_band_slot_5g", type=str,
+                        help="[AP configuration] --ap_dual_band_slot_5g 2 , 9800 AP dual-band slot , for 5g dual-band use show ap dot11 dual-band summary",
+                        default='2')
+    parser.add_argument("--ap_band_slot_6g", type=str,
+                        help="[AP configuration] --ap_band_slot_6g 2 , 9800 AP band slot , use show ap dot11 6ghz summary",
+                        default='2')
+    parser.add_argument("--ap_band_slot_5g", type=str,
+                        help="[AP configuration] --ap_band_slot_5g 1 , 9800 AP band slot , use show ap dot11 5ghz summary",
+                        default='1')
+    parser.add_argument("--ap_band_slot_24g", type=str,
+                        help="[AP configuration] --ap_band_slot_24g 0 , 9800 AP band slot , use show ap dot11 24ghz summary",
+                        default='0')
 
     # wlan configuration
     parser.add_argument("--create_wlan", help="[wlan configuration] --create_wlan", action='store_true')
-    parser.add_argument("--wlan", type=str, help="[wlan configuration] controller wlan name --wlan 6G-wpa3-AP3 ", required=True)
-    parser.add_argument("--wlan_id", "--wlanID", dest="wlanID", type=str, help="[wlan configuration] controller wlan id  --wlan_id 15", required=True)
-    parser.add_argument("--wlan_ssid", "--wlanSSID", dest="wlanSSID", type=str, help="[wlan configuration] controller wlan ssid --wlan_ssid 6G-wpa3-AP3, wlan ssid must match station ssid", required=True)
-    parser.add_argument("--tag_policy", type=str, help="[wlan configuration] controller tag policy --tag_policy RM204-TB1-AP4")
-    parser.add_argument("--policy_profile", type=str, help="[wlan configuration] --policy_profile default-policy-profile")
+    parser.add_argument("--wlan", type=str, help="[wlan configuration] controller wlan name --wlan 6G-wpa3-AP3 ",
+                        required=True)
+    parser.add_argument("--wlan_id", "--wlanID", dest="wlanID", type=str,
+                        help="[wlan configuration] controller wlan id  --wlan_id 15", required=True)
+    parser.add_argument("--wlan_ssid", "--wlanSSID", dest="wlanSSID", type=str,
+                        help="[wlan configuration] controller wlan ssid --wlan_ssid 6G-wpa3-AP3, wlan ssid must match station ssid",
+                        required=True)
+    parser.add_argument("--tag_policy", type=str,
+                        help="[wlan configuration] controller tag policy --tag_policy RM204-TB1-AP4")
+    parser.add_argument("--policy_profile", type=str,
+                        help="[wlan configuration] --policy_profile default-policy-profile")
 
     # ap interface configuration
-    parser.add_argument('-api', '--ap_info', action='append', nargs=1, type=str, help="[ap configuration] --ap_info ap_scheme==<telnet,ssh or serial> ap_prompt==<ap_prompt> ap_ip==<ap ip> ap_port==<ap port number> ap_user==<ap user> ap_pw==<ap password>")
+    parser.add_argument('-api', '--ap_info', action='append', nargs=1, type=str,
+                        help="[ap configuration] --ap_info ap_scheme==<telnet,ssh or serial> ap_prompt==<ap_prompt> ap_ip==<ap ip> ap_port==<ap port number> ap_user==<ap user> ap_pw==<ap password>")
 
     # if args.ap_admin_down_up_6g:  - work around for 6G
-    parser.add_argument("--ap_admin_down_up_6g", help="[ap admin down up] --6g_ap_admin_down_up  will admin down and up the AP", action='store_true')
+    parser.add_argument("--ap_admin_down_up_6g",
+                        help="[ap admin down up] --6g_ap_admin_down_up  will admin down and up the AP",
+                        action='store_true')
 
     # tx power pathloss configuration
-    parser.add_argument("--pathloss", type=str, help="[tx power configuration] Calculated pathloss between LANforge Station and AP --pathloss 59", required=True)
-    parser.add_argument("--antenna_gain", type=str, help="[tx power configuration] Antenna gain,  take into account the gain due to the antenna --antenna_gain 6", required=True)
-    parser.add_argument("--pf_ignore_offset", type=str, help="[tx power configuration] Allow a chain to have lower tx-power and still pass. default 0 so disabled", default="0")
-    parser.add_argument("--adjust_nf", action='store_true', help="[tx power configuration] Adjust RSSI based on noise-floor.  ath10k without the use-real-noise-floor fix needs this option")
-    parser.add_argument('--beacon_dbm_diff', type=str, help="[tx power configuration] --beacon_dbm_diff <value>  is the delta that is allowed between the controller tx and the beacon measured", default="7")
+    parser.add_argument("--pathloss", type=str,
+                        help="[tx power configuration] Calculated pathloss between LANforge Station and AP --pathloss 59",
+                        required=True)
+    parser.add_argument("--antenna_gain", type=str,
+                        help="[tx power configuration] Antenna gain,  take into account the gain due to the antenna --antenna_gain 6",
+                        required=True)
+    parser.add_argument("--pf_ignore_offset", type=str,
+                        help="[tx power configuration] Allow a chain to have lower tx-power and still pass. default 0 so disabled",
+                        default="0")
+    parser.add_argument("--adjust_nf", action='store_true',
+                        help="[tx power configuration] Adjust RSSI based on noise-floor.  ath10k without the use-real-noise-floor fix needs this option")
+    parser.add_argument('--beacon_dbm_diff', type=str,
+                        help="[tx power configuration] --beacon_dbm_diff <value>  is the delta that is allowed between the controller tx and the beacon measured",
+                        default="7")
 
     # pass / fail criteria
-    parser.add_argument("--pf_dbm", type=str, help="[tx power pass / fail criteria] Pass/Fail threshold per Spetial Stream.  Default is 3", default="3")
+    parser.add_argument("--pf_dbm", type=str,
+                        help="[tx power pass / fail criteria] Pass/Fail threshold per Spetial Stream.  Default is 3",
+                        default="3")
 
     # traffic generation configuration (LANforge)
-    parser.add_argument("--lfmgr", type=str, help="[traffic generation configuration (LANforge)] LANforge Manager IP address --lfmgr 192.168.100.178", required=True)
-    parser.add_argument("--upstream_port", type=str, help="[traffic generation configuration (LANforge)] LANforge upsteram-port to use (eth1, etc)  --upstream_port eth2", required=True)
-    parser.add_argument("--lfresource", type=str, help="[traffic generation configuration (LANforge)] LANforge resource ID for the station --lfresource 1")
-    parser.add_argument("--lfresource2", type=str, help="[traffic generation configuration (LANforge)] LANforge resource ID for the upstream port system ")
+    parser.add_argument("--lfmgr", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge Manager IP address --lfmgr 192.168.100.178",
+                        required=True)
+    parser.add_argument("--lfport", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge Manager port --lfport 8080 default 8080",
+                        default=8080)
+    parser.add_argument("--lfuser", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge Manager user  --lfuser lanforge default lanforge",
+                        default='lanforge')
+    parser.add_argument("--lfpasswd", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge Manager passwd --lfpasswd lanforge default lanforge",
+                        default='lanforge')
+    parser.add_argument("--upstream_port", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge upsteram-port to use (eth1, etc)  --upstream_port eth2",
+                        required=True)
+    parser.add_argument("--lfresource", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge resource ID for the station --lfresource 1")
+    parser.add_argument("--lfresource2", type=str,
+                        help="[traffic generation configuration (LANforge)] LANforge resource ID for the upstream port system ")
 
     # LANforge station configuration
-    parser.add_argument("--radio", type=str, help="[LANforge station configuration] LANforge radio station created on --radio wiphy0")
-    parser.add_argument("--create_station", help="[LANforge station configuration] create LANforge station at the beginning of the test", action='store_true')
-    parser.add_argument("--station", type=str, help="[LANforge station configuration] Use already created LANforge station, use --no_cleanup also --station wlan0", required=True)
-    parser.add_argument("--ssid", type=str, help="[station configuration] station ssid, ssid of station must match the wlan created --ssid 6G-wpa3-AP3", required=True)
-    parser.add_argument("--ssidpw", "--security_key", dest='ssidpw', type=str, help="[station configuration]  station security key --ssidpw hello123", required=True)
-    parser.add_argument("--bssid", "--ap_bssid", dest='bssid', type=str, help="[station configuration]  station AP bssid ", required=True)
-    parser.add_argument("--security", type=str, help="[station configuration] security type open wpa wpa2 wpa3", required=True)
-    parser.add_argument("--wifi_mode", type=str, help="[station configuration] --wifi_mode auto  types auto|a|abg|abgn|abgnAC|abgnAX|an|anAC|anAX|b|bg|bgn|bgnAC|bgnAX|g ", default='auto')
-    parser.add_argument("--vht160", action='store_true', help="[station configuration] --vht160 , Enable VHT160 in lanforge ")
-    parser.add_argument("--ieee80211w", type=str, help="[station configuration] --ieee80211w 0 (Disabled) 1 (Optional) 2 (Required) (Required needs to be set to Required for 6g and wpa3 default Optional ", default='1')
-    parser.add_argument("--wave2", help="[station configuration] --wave2 , wave2 (9984) has restrictions : 160Mhz is 2x2", action='store_true')
-    parser.add_argument("--no_cleanup_station", action='store_true', help="[station configuration] --no_cleanup_station , do not clean up station after test completes ")
+    parser.add_argument("--radio", type=str,
+                        help="[LANforge station configuration] LANforge radio station created on --radio wiphy0")
+    parser.add_argument("--create_station",
+                        help="[LANforge station configuration] create LANforge station at the beginning of the test",
+                        action='store_true')
+    parser.add_argument("--station", type=str,
+                        help="[LANforge station configuration] Use already created LANforge station, use --no_cleanup also --station wlan0",
+                        required=True)
+    parser.add_argument("--ssid", type=str,
+                        help="[station configuration] station ssid, ssid of station must match the wlan created --ssid 6G-wpa3-AP3",
+                        required=True)
+    parser.add_argument("--ssidpw", "--security_key", dest='ssidpw', type=str,
+                        help="[station configuration]  station security key --ssidpw hello123", required=True)
+    parser.add_argument("--bssid", "--ap_bssid", dest='bssid', type=str,
+                        help="[station configuration]  station AP bssid ", required=True)
+    parser.add_argument("--security", type=str, help="[station configuration] security type open wpa wpa2 wpa3",
+                        required=True)
+    parser.add_argument("--wifi_mode", type=str,
+                        help="[station configuration] --wifi_mode auto  types auto|a|abg|abgn|abgnAC|abgnAX|an|anAC|anAX|b|bg|bgn|bgnAC|bgnAX|g ",
+                        default='auto')
+    parser.add_argument("--vht160", action='store_true',
+                        help="[station configuration] --vht160 , Enable VHT160 in lanforge ")
+    parser.add_argument("--ieee80211w", type=str,
+                        help="[station configuration] --ieee80211w 0 (Disabled) 1 (Optional) 2 (Required) (Required needs to be set to Required for 6g and wpa3 default Optional ",
+                        default='1')
+    parser.add_argument("--wave2",
+                        help="[station configuration] --wave2 , wave2 (9984) has restrictions : 160Mhz is 2x2",
+                        action='store_true')
+    parser.add_argument("--no_cleanup_station", action='store_true',
+                        help="[station configuration] --no_cleanup_station , do not clean up station after test completes ")
+
+    # mtk7921k configuration
+    parser.add_argument("--mtk7921k",
+                        help="[mtk7921 configuration] --mtk7921 , set to have the radio channel set store true",
+                        action="store_true")
+    parser.add_argument("--mtk7921k_beacon",
+                        help="[mtk7921 configuration] --mtk7921_beacon , mtk7921 beacon set, store true",
+                        action="store_true")
 
     # test configuration
-    parser.add_argument("-c", "--channel", type=str, help="[test configuration] --channel '1 33' List of channels to test, with optional path-loss, 36:64 149:60. NA means no change")
-    parser.add_argument("-b", "--bandwidth", type=str, help="[test configuration] --bandwidth '20 40 80 160' List of bandwidths to test. NA means no change")
-    parser.add_argument("-n", "--nss", type=str, help="[test configuration] --nss '2' List of spatial streams to test.  NA means no change")
+    parser.add_argument("-c", "--channel", type=str,
+                        help="[test configuration] --channel '1 33' List of channels to test, with optional path-loss, 36:64 149:60. NA means no change")
+    parser.add_argument("-b", "--bandwidth", type=str,
+                        help="[test configuration] --bandwidth '20 40 80 160' List of bandwidths to test. NA means no change")
+    parser.add_argument("-n", "--nss", type=str,
+                        help="[test configuration] --nss '2' List of spatial streams to test.  NA means no change")
 
+    parser.add_argument("--tx_pw_cmp_to_prev", help='''
+    [test configuration] --tx_pw_cmp_to_prev  validated that there was 3 dBm difference for each power step between runs
+                            tx pwr 1 (20 dBm) to tx_pwr 2 (17 dBm) the pwr difference is 3 dBm
+                            tx_power of 1 has no comparison", action='store_true'
+                            ''')
 
-    parser.add_argument("--nss_4x4_override", help="[test configuration] --nss_4x4_override  controller nss is 4 client nss is 2, set expected power to 1/4", action='store_true')
-    parser.add_argument("--nss_4x4_ap_adjust", help="[test configuration] --nss_4x4_ap_adjust read ap to know number of spatial stream to take into account", action='store_true')
-    parser.add_argument("--set_nss", help="[test configuration] --set_nss  configure controller to spatial streams to test", action='store_true')
-    parser.add_argument("-T", "--txpower", type=str, help="[test configuration] List of txpowers to test.  NA means no change")
-    parser.add_argument('-D', '--duration', type=str, help='[test configuration] --traffic <how long to run in seconds>  example -D 30 (seconds) default: 30 ', default='30')
-    parser.add_argument('--wait_time', type=str, help='[test configuration] --wait_time <how long to wait for station to connect seconds>  example --wait_time 180 (seconds) default: 180 ', default='180')
-    parser.add_argument("--outfile", help="[test configuration] Output file for csv data --outfile 'tx_power_AX210_2x2_6E")
-    parser.add_argument("-k", "--keep_state", "--no_cleanup", dest="keep_state", action="store_true", help="[test configuration] --no_cleanup, keep the state, no configuration change at the end of the test")
+    parser.add_argument("--nss_4x4_override",
+                        help="[test configuration] --nss_4x4_override  controller nss is 4 client nss is 2, set expected power to 1/4",
+                        action='store_true')
+    parser.add_argument("--nss_4x4_ap_adjust",
+                        help="[test configuration] --nss_4x4_ap_adjust read ap to know number of spatial stream to take into account",
+                        action='store_true')
+    parser.add_argument("--set_nss",
+                        help="[test configuration] --set_nss  configure controller to spatial streams to test",
+                        action='store_true')
+    parser.add_argument("-T", "--txpower", type=str,
+                        help="[test configuration] List of txpowers to test.  NA means no change")
+    parser.add_argument('-D', '--duration', type=str,
+                        help='[test configuration] --traffic <how long to run in seconds>  example -D 30 (seconds) default: 30 ',
+                        default='30')
+    parser.add_argument('--wait_time', type=str,
+                        help='[test configuration] --wait_time <how long to wait for station to connect seconds>  example --wait_time 180 (seconds) default: 180 ',
+                        default='180')
+    parser.add_argument("--outfile",
+                        help="[test configuration] Output file for csv data --outfile 'tx_power_AX210_2x2_6E")
+    parser.add_argument("-k", "--keep_state", "--no_cleanup", dest="keep_state", action="store_true",
+                        help="[test configuration] --no_cleanup, keep the state, no configuration change at the end of the test")
     # TODO may want to remove enable_all_bands , all bands need to be enabled for 6E testing for 6E to know the domain
-    parser.add_argument("-enb", "--enable_all_bands", dest="enable_all_bands", action="store_true", help="[test configuration] --enable_all_bands, enable 6g, 5g, 24b bands at end of test")
-    parser.add_argument('--tx_power_adjust_6E', action="store_true", help="[test configuration] --power_adjust_6E  stores true, 6E: 20 Mhz pw 1-6, 40 Mhz pw 1-7 ")
+    parser.add_argument("-enb", "--enable_all_bands", dest="enable_all_bands", action="store_true",
+                        help="[test configuration] --enable_all_bands, enable 6g, 5g, 24b bands at end of test")
+    parser.add_argument('--tx_power_adjust_6E', action="store_true",
+                        help="[test configuration] --power_adjust_6E  stores true, 6E: 20 Mhz pw 1-6, 40 Mhz pw 1-7 ")
     # parser.add_argument('--per_ss', action="store_true", help="[test configuration] --per_ss  stores true, per spatial stream used in pass fail criteria")
 
     # test configuration
-    parser.add_argument("--testbed_id", "--test_rig", dest='test_rig', type=str, help="[testbed configuration] --test_rig", default="")
-    parser.add_argument("--testbed_location", dest='testbed_location', type=str, help="[testbed configuration] --testbed_location <from show ap summary Location>", default="default location")
+    parser.add_argument("--testbed_id", "--test_rig", dest='test_rig', type=str,
+                        help="[testbed configuration] --test_rig", default="")
+    parser.add_argument("--testbed_location", dest='testbed_location', type=str,
+                        help="[testbed configuration] --testbed_location <from show ap summary Location>",
+                        default="default location")
 
     # kpi_csv arguments:
-    parser.add_argument("--test_tag", default="", help="[kpi configuration] test tag for kpi.csv,  test specific information to differenciate the test")
-    parser.add_argument("--dut_hw_version", default="", help="[kpi configuration] dut hw version for kpi.csv, hardware version of the device under test")
-    parser.add_argument("--dut_sw_version", default="", help="[kpi configuration] dut sw version for kpi.csv, software version of the device under test")
-    parser.add_argument("--dut_model_num", default="", help="[kpi configuration] dut model for kpi.csv,  model number / name of the device under test")
-    parser.add_argument("--dut_serial_num", default="", help="[kpi configuration] dut serial for kpi.csv, serial number / serial number of the device under test")
-    parser.add_argument("--test_priority", default="", help="[kpi configuration] dut model for kpi.csv,  test-priority is arbitrary number")
-    parser.add_argument("--test_id", default="TX power", help="[kpi configuration] test-id for kpi.csv,  script or test name")
+    parser.add_argument("--test_tag", default="",
+                        help="[kpi configuration] test tag for kpi.csv,  test specific information to differenciate the test")
+    parser.add_argument("--dut_hw_version", default="",
+                        help="[kpi configuration] dut hw version for kpi.csv, hardware version of the device under test")
+    parser.add_argument("--dut_sw_version", default="",
+                        help="[kpi configuration] dut sw version for kpi.csv, software version of the device under test")
+    parser.add_argument("--dut_model_num", default="",
+                        help="[kpi configuration] dut model for kpi.csv,  model number / name of the device under test")
+    parser.add_argument("--dut_serial_num", default="",
+                        help="[kpi configuration] dut serial for kpi.csv, serial number / serial number of the device under test")
+    parser.add_argument("--test_priority", default="",
+                        help="[kpi configuration] dut model for kpi.csv,  test-priority is arbitrary number")
+    parser.add_argument("--test_id", default="TX power",
+                        help="[kpi configuration] test-id for kpi.csv,  script or test name")
 
-    parser.add_argument("--html_report", help="[html configuration] --html_report store True , will create html and pdf reports", action='store_true')
+    parser.add_argument("--html_report",
+                        help="[html configuration] --html_report store True , will create html and pdf reports",
+                        action='store_true')
 
-    parser.add_argument('--local_lf_report_dir', help='--local_lf_report_dir override the report path, primary use when running test in test suite', default="")
+    parser.add_argument('--local_lf_report_dir',
+                        help='--local_lf_report_dir override the report path, primary use when running test in test suite',
+                        default="")
+
+
 
     # TODO ADD KP configuration
 
     # debug configuration
-    parser.add_argument("--wait_forever", action='store_true', help="[debug configuration] Wait forever for station to associate, may aid debugging if STA cannot associate properly")
-    parser.add_argument('--show_lf_portmod', action='store_true', help="[debug configuration] --show_lf_portmod,  show the output of lf_portmod after traffic to verify RSSI values measured by lanforge")
-    parser.add_argument("--exit_on_fail", action='store_true', help="[debug configuration] --exit_on_fail,  exit on test failure")
-    parser.add_argument("--exit_on_error", action='store_true', help="[debug configuration] --exit_on_error, exit on test error, test mechanics failed")
+    parser.add_argument("--wait_forever", action='store_true',
+                        help="[debug configuration] Wait forever for station to associate, may aid debugging if STA cannot associate properly")
+    parser.add_argument('--show_lf_portmod', action='store_true',
+                        help="[debug configuration] --show_lf_portmod,  show the output of lf_portmod after traffic to verify RSSI values measured by lanforge")
+    parser.add_argument("--exit_on_fail", action='store_true',
+                        help="[debug configuration] --exit_on_fail,  exit on test failure")
+    parser.add_argument("--exit_on_error", action='store_true',
+                        help="[debug configuration] --exit_on_error, exit on test error, test mechanics failed")
 
-    # logg information 
-    parser.add_argument("--lf_logger_config_json", help="[log configuration] --lf_logger_config_json <json file> , json configuration of logger")
+    # logg information
+    parser.add_argument("--lf_logger_config_json",
+                        help="[log configuration] --lf_logger_config_json <json file> , json configuration of logger")
     parser.add_argument("--log_level", help="[log configuration] --log_level  debug info warning error critical")
+    parser.add_argument("--debug", help="[log configuration] --debug store_true , used by lanforge client ",
+                        action='store_true')
+
+    parser.add_argument(
+        "--skip_dut",
+        action="store_true",
+        help="Skip DUT/controller automation"
+    )
 
     # current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + "{:.3f}".format(time.time() - (math.floor(time.time())))[1:]
     # print(current_time)
@@ -524,18 +684,33 @@ def main():
     args = None
 
     # Parcing the input parameters and assignment
-    args = parser.parse_args()
+    if tx_config is None:
+        # CLI mode
+        args = parser.parse_args()
+    else:
+        # Framework mode (NO argparse)
+        args = argparse.Namespace(**tx_config)
+    if tx_config is not None:
+
+        for key, value in tx_config.items():
+            if key in ["channel", "nss", "bandwidth", "pathloss", "antenna_gain", "duration"]:
+                value = str(value)
+            if key == "txpower":
+                # keep as-is (handled separately)
+                pass
+            setattr(args, key, value)
 
     # set up logger
-    logger_config = lf_logger_config.lf_logger_config()
+    if not logging.getLogger().handlers:
+        logger_config = lf_logger_config.lf_logger_config()
 
-    if args.log_level:
-        logger_config.set_level(level=args.log_level)
+        if args.log_level:
+            logger_config.set_level(level=args.log_level)
 
     if args.lf_logger_config_json:
-          # logger_config.lf_logger_config_json = "lf_logger_config.json"
-          logger_config.lf_logger_config_json = args.lf_logger_config_json
-          logger_config.load_lf_logger_config()
+        # logger_config.lf_logger_config_json = "lf_logger_config.json"
+        logger_config.lf_logger_config_json = args.lf_logger_config_json
+        logger_config.load_lf_logger_config()
 
     # TODO refactor to be logger for consistency
     logg = logging.getLogger(__name__)
@@ -553,8 +728,114 @@ def main():
     # test_priority = args.test_priority  # this may need to be set per test
     test_id = args.test_id
 
+    lfstation = args.station
+    upstream_port = args.upstream_port
+    lfmgr = args.lfmgr
+    # TODO
+    if (args.lfresource is not None):
+        lfresource = args.lfresource
+    if (args.lfresource2 is not None):
+        lfresource2 = args.lfresource2
+
+    if (args.pf_dbm is not None):
+        pf_dbm = int(args.pf_dbm)
+    if (args.pf_ignore_offset is not None):
+        pf_ignore_offset = int(args.pf_ignore_offset)
+    if (args.wlanSSID != args.ssid):
+        print("####### ERROR ################################")
+        print("wlanSSID: {} must equal the station ssid: {}".format(args.wlanSSID, args.ssid))
+        print("####### ERROR ################################")
+        exit(1)
+    if (args.create_wlan):
+        if (args.tag_policy is None or args.policy_profile is None):
+            print("####### ERROR ######################################################")
+            print(" For create_wlan both tag_policy and policy_profile must be entered")
+            print("####### ERROR #######################################################")
+            exit(1)
+
+    ap_dict = []
+    if args.ap_info:
+        ap_info = args.ap_info
+        for _ap_info in ap_info:
+            print("ap_info {}".format(_ap_info))
+            ap_keys = ['ap_scheme', 'ap_prompt', 'ap_ip', 'ap_port', 'ap_user', 'ap_pw']
+            ap_dict = dict(
+                map(lambda x: x.split('=='), str(_ap_info).replace('[', '').replace(']', '').replace("'", "").split()))
+            for key in ap_keys:
+                if key not in ap_dict:
+                    print("missing ap config, for the {}, all these need to be set {} ".format(key, ap_keys))
+                    exit(1)
+            print("ap_dict: {}".format(ap_dict))
+
+    # except Exception as e:
+    #    logging.exception(e)
+    #    usage()
+    #    exit(2)
+
+    # dynamic import of the controller module
+    if not args.skip_dut:
+        series = importlib.import_module(args.module)
+    else:
+        series = None
+    cs = None
+    if args.module_scrapli:
+        if not args.skip_dut:
+            # create the controller , cs is controller scheme
+            cs = series.create_controller_series_object(
+                scheme=args.scheme,
+                dest=args.dest,
+                user=args.user,
+                passwd=args.passwd,
+                prompt=args.prompt,
+                series=args.series,
+                ap=args.ap,
+                ap_band_slot_6g=args.ap_band_slot_6g,
+                port=args.port,
+                band=args.band,
+                timeout=args.timeout,
+                lfmgr=args.lfmgr,
+                lfuser=args.lfuser,
+                lfpasswd=args.lfpasswd,
+                upstream_port=args.upstream_port)
+    else:
+        # create the controller , cs is controller scheme
+        if not args.skip_dut:
+            cs = series.create_controller_series_object(
+                scheme=args.scheme,
+                dest=args.dest,
+                user=args.user,
+                passwd=args.passwd,
+                prompt=args.prompt,
+                series=args.series,
+                ap=args.ap,
+                ap_band_slot_6g=args.ap_band_slot_6g,
+                port=args.port,
+                band=args.band,
+                timeout=args.timeout)
+    if cs:
+        cs.wlan = args.wlan
+        cs.wlanID = args.wlanID
+        cs.wlanSSID = args.wlanSSID
+        # TODO change to use args.security_key
+        cs.security_key = args.ssidpw
+        cs.series = args.series
+
+        # Need to get regulatory domain for title
+        # Read the country code and regulatory domain
+
+        cs.console_setup()
+
+        cs.read_country_code_and_regulatory_domain()
+
+    myrd = args.country
+    mycc = args.country
+
+    # setup Logging and Paths
+
+    # end setup logging and paths
     # put in test information in title name
     # this only works for single test passed in.
+    # TODO adjustments to module
     if args.tx_power_adjust_6E and args.band == '6g':
         txpowers = args.txpower.split()
         if args.bandwidth == '20':
@@ -568,19 +849,27 @@ def main():
         txpowers_str = '_'.join(txpowers)
 
         results_dir_name = ("tx_power"
+                            + '_cc_' + mycc
+                            + '_rd_' + myrd
                             + '_band_' + args.band
-                            + '_ch_' + args.channel.replace(' ', '_')
-                            + '_nss_' + args.nss.replace(' ', '_')
-                            + '_bw_' + args.bandwidth.replace(' ', '_')
+                            + '_ch_' + str(args.channel)
+                            + '_nss_' + str(args.nss)
+                            + '_bw_' +  str(args.bandwidth)
                             + '_txpw_' + txpowers_str)
 
     else:
+        if isinstance(args.txpower, list):
+            txpower_str = "_".join(map(str, args.txpower))
+        else:
+            txpower_str = str(args.txpower).replace(' ', '_')
         results_dir_name = ("tx_power"
+                            + '_cc_' + mycc
+                            + '_rd_' + myrd
                             + '_band_' + args.band
-                            + '_ch_' + args.channel.replace(' ', '_')
-                            + '_nss_' + args.nss.replace(' ', '_')
-                            + '_bw_' + args.bandwidth.replace(' ', '_')
-                            + '_txpw_' + args.txpower.replace(' ', '_'))
+                            + '_ch_' + str(args.channel)
+                            + '_nss_' + str(args.nss)
+                            + '_bw_' +  str(args.bandwidth)
+                            + '_txpw_' + txpower_str)
 
     if local_lf_report_dir != "":
         report = lf_report.lf_report(
@@ -610,43 +899,72 @@ def main():
         _kpi_dut_serial_num=dut_serial_num,
         _kpi_test_id=test_id)
 
-    lfstation = args.station
-    upstream_port = args.upstream_port
-    lfmgr = args.lfmgr
-    # TODO
-    if (args.lfresource is not None):
-        lfresource = args.lfresource
-    if (args.lfresource2 is not None):
-        lfresource2 = args.lfresource2
-
     outfile_path = report.get_report_path()
     current_time = time.strftime("%m_%d_%Y_%H_%M_%S", time.localtime())
     if (args.outfile):
-        test_name = ('Tx Power:' + args.outfile  + 'AP: ' + args.ap + ', Band: ' + args.band + ', Channel: ' + args.channel
-                 + ', NSS: ' + args.nss
-                 + ', BW: ' + args.bandwidth
-                 + ', Tx Power: ' + args.txpower)
+        test_name = ('Tx Power:' + args.outfile + ', AP: ' + args.ap + ', CC: ' + mycc + ', RD ' + myrd
+                     + ', Band: ' + args.band + ', Channel: ' + args.channel
+                     + ', NSS: ' + args.nss
+                     + ', BW: ' + args.bandwidth
+                     + ', Tx Power: ' + args.txpower)
 
+        test_setup_info = {
+            "Test Name": "Tx Power",
+            "Outfile": args.outfile,
+            "AP": args.ap,
+            "CC": mycc,
+            "RD": myrd,
+            "Band": args.band,
+            "Channel": args.channel,
+            "NSS": args.nss,
+            "Bandwidth": args.bandwidth,
+            "Tx Power": args.txpower
+        }
+        if isinstance(args.txpower, list):
+            txpower_str = "_".join(map(str, args.txpower))
+        else:
+            txpower_str = str(args.txpower).replace(' ', '_')
         outfile_tmp = (outfile_path + '/' + current_time + '_' + args.outfile
                        + '_AP_' + args.ap
+                       + '_CC_' + mycc
+                       + '_RD_' + myrd
                        + '_band_' + args.band
-                       + '_ch_' + args.channel.replace(' ', '_')
-                       + '_nss_' + args.nss.replace(' ', '_')
-                       + '_bw_' + args.bandwidth.replace(' ', '_')
-                       + '_tx_pw_' + args.txpower.replace(' ', '_'))
+                       + '_ch_' + str(args.channel)
+                       + '_nss_' + str(args.nss)
+                       + '_bw_' +  str(args.bandwidth)
+                       + '_tx_pw_' + txpower_str)
     else:
-        test_name = ('Tx Power:' + 'AP: ' + args.ap + ', Band: ' + args.band + ', Channel: ' + args.channel
-                 + ', NSS: ' + args.nss
-                 + ', BW: ' + args.bandwidth
-                 + ', Tx Power: ' + args.txpower)
+        test_name = ('Tx Power:' + 'AP: ' + args.ap + ', CC: ' + mycc + ', RD ' + myrd
+                     + ', Band: ' + args.band + ', Channel: ' + args.channel
+                     + ', NSS: ' + args.nss
+                     + ', BW: ' + args.bandwidth
+                     + ', Tx Power: ' + args.txpower)
 
+        test_setup_info = {
+            "Test Name": "Tx Power",
+            "AP": args.ap,
+            "CC": mycc,
+            "RD": myrd,
+            "Band": args.band,
+            "Channel": args.channel,
+            "NSS": args.nss,
+            "Bandwidth": args.bandwidth,
+            "Tx Power": args.txpower
+        }
+
+        if isinstance(args.txpower, list):
+            txpower_str = "_".join(map(str, args.txpower))
+        else:
+            txpower_str = str(args.txpower).replace(' ', '_')
         outfile_tmp = (outfile_path + '/' + current_time + '_' + 'tx_power'
                        + '_AP_' + args.ap
+                       + '_CC_' + mycc
+                       + '_RD_' + myrd
                        + '_band_' + args.band
-                       + '_ch_' + args.channel.replace(' ', '_')
-                       + '_nss_' + args.nss.replace(' ', '_')
-                       + '_bw_' + args.bandwidth.replace(' ', '_')
-                       + '_tx_pw_' + args.txpower.replace(' ', '_'))
+                       + '_ch_' + str(args.channel)
+                       + '_nss_' + str(args.nss)
+                       + '_bw_' +  str(args.bandwidth)
+                       + '_tx_pw_' + txpower_str)
     print("outfile_tmp {outfile_tmp}".format(outfile_tmp=outfile_tmp))
 
     # note: there would always be an args.outfile due to the default
@@ -656,62 +974,6 @@ def main():
     print("output file: {}".format(outfile))
     print("output file full: {}".format(full_outfile))
     print("output file xlsx: {}".format(outfile_xlsx))
-
-    if (args.pf_dbm is not None):
-        pf_dbm = int(args.pf_dbm)
-    if (args.pf_ignore_offset is not None):
-        pf_ignore_offset = int(args.pf_ignore_offset)
-    if (args.wlanSSID != args.ssid):
-        print("####### ERROR ################################")
-        print("wlanSSID: {} must equal the station ssid: {}".format(args.wlanSSID, args.ssid))
-        print("####### ERROR ################################")
-        exit(1)
-    if (args.create_wlan):
-        if(args.tag_policy is None or args.policy_profile is None):
-            print("####### ERROR ######################################################")
-            print(" For create_wlan both tag_policy and policy_profile must be entered")
-            print("####### ERROR #######################################################")
-            exit(1)
-
-    ap_dict = []
-    if args.ap_info:
-        ap_info = args.ap_info
-        for _ap_info in ap_info:
-            print("ap_info {}".format(_ap_info))
-            ap_keys = ['ap_scheme', 'ap_prompt', 'ap_ip', 'ap_port', 'ap_user', 'ap_pw']
-            ap_dict = dict(map(lambda x: x.split('=='), str(_ap_info).replace('[', '').replace(']', '').replace("'", "").split()))
-            for key in ap_keys:
-                if key not in ap_dict:
-                    print("missing ap config, for the {}, all these need to be set {} ".format(key, ap_keys))
-                    exit(1)
-            print("ap_dict: {}".format(ap_dict))
-
-    # except Exception as e:
-    #    logging.exception(e)
-    #    usage()
-    #    exit(2)
-
-    # dynamic import of the controller module
-    series = importlib.import_module(args.module)
-
-    # create the controller , cs is controller scheme
-    cs = series.create_controller_series_object(
-        scheme=args.scheme,
-        dest=args.dest,
-        user=args.user,
-        passwd=args.passwd,
-        prompt=args.prompt,
-        series=args.series,
-        ap=args.ap,
-        ap_band_slot_6g=args.ap_band_slot_6g,
-        port=args.port,
-        band=args.band,
-        timeout=args.timeout)
-    cs.wlan = args.wlan
-    cs.wlanID = args.wlanID
-    cs.wlanSSID = args.wlanSSID
-    # TODO change to use args.security_key
-    cs.security_key = args.ssidpw
 
     if args.create_wlan:
         cs.tag_policy = args.tag_policy
@@ -756,13 +1018,17 @@ def main():
 
     # Full spread-sheet data
     csv = open(full_outfile, "w")
-    csv.write("Regulatory Domain\tCabling Pathloss\tAntenna Gain\tCfg-Channel\tCfg-NSS\tCfg-AP-BW\tTx Power\tBeacon-Signal\tCombined-Signal\tRSSI 1\tRSSI 2\tRSSI 3\tRSSI 4\tAP-BSSID\tRpt-BW\tRpt-Channel\tRpt-Mode\tRpt-NSS\tRpt-Noise\tRpt-Rxrate\tCtrl-AP-MAC\tCtrl-Channel\tCtrl-Power\tCtrl-dBm\tCalc-dBm-Combined\tDiff-dBm-Combined\tAnt-1\tAnt-2\tAnt-3\tAnt-4\tOffset-1\tOffset-2\tOffset-3\tOffset-4\tPASS/FAIL(+-%sdB)\tTimeStamp\tWarnings-and-Errors" % (pf_dbm))
+    csv.write(
+        "Regulatory Domain\tCabling Pathloss\tAntenna Gain\tCfg-Channel\tCfg-NSS\tCfg-AP-BW\tTx Power\tBeacon-Signal\tCombined-Signal\tRSSI 1\tRSSI 2\tRSSI 3\tRSSI 4\tAP-BSSID\tRpt-BW\tRpt-Channel\tRpt-Mode\tRpt-NSS\tRpt-Noise\tRpt-Rxrate\tCtrl-AP-MAC\tCtrl-Channel\tCtrl-Power\tCtrl-dBm\tCalc-dBm-Combined\tDiff-dBm-Combined\tAnt-1\tAnt-2\tAnt-3\tAnt-4\tOffset-1\tOffset-2\tOffset-3\tOffset-4\tPASS/FAIL(+-%sdB)\tTimeStamp\tWarnings-and-Errors" % (
+            pf_dbm))
     csv.write("\n")
     csv.flush()
 
     # Summary spread-sheet data
     csvs = open(outfile, "w")
-    csvs.write("Regulatory Domain\tCabling Pathloss\tAntenna Gain\tAP Channel\tNSS\tAP BW\tTx Power\tAllowed Per-Path\tRSSI 1\tRSSI 2\tRSSI 3\tRSSI 4\tAnt-1\tAnt-2\tAnt-3\tAnt-4\tOffset-1\tOffset-2\tOffset-3\tOffset-4\tPASS/FAIL(+-%sdB)\tTimeStamp\tWarnings-and-Errors" % (pf_dbm))
+    csvs.write(
+        "Regulatory Domain\tCabling Pathloss\tAntenna Gain\tAP Channel\tNSS\tAP BW\tTx Power\tAllowed Per-Path\tRSSI 1\tRSSI 2\tRSSI 3\tRSSI 4\tAnt-1\tAnt-2\tAnt-3\tAnt-4\tOffset-1\tOffset-2\tOffset-3\tOffset-4\tPASS/FAIL(+-%sdB)\tTimeStamp\tWarnings-and-Errors" % (
+            pf_dbm))
     csvs.write("\n")
     csvs.flush()
 
@@ -812,6 +1078,9 @@ def main():
     center_pink = workbook.add_format({'align': 'center'})
     center_pink.set_bg_color("ffd2d3")
     center_pink.set_border(1)
+    center_red = workbook.add_format({'align': 'center'})
+    center_red.set_bg_color("fc5555")
+    center_red.set_border(1)
     red = workbook.add_format({'color': 'red', 'align': 'center'})
     red.set_bg_color("#e0efda")
     red.set_border(1)
@@ -848,20 +1117,26 @@ def main():
     # parameters  merge_range(first_row, first_col, last_row, last_col, data[, cell_format])
 
     # Can only write simple types to merged ranges so write a blank string
-    test_notes =  '                          Pass / Fail criteria based on Offset per spatial stream being greater then {pf_dbm} dBm'.format(pf_dbm=pf_dbm)
+    test_notes = '                          Pass / Fail criteria based on Offset per spatial stream being greater then {pf_dbm} dBm'.format(
+        pf_dbm=pf_dbm)
     worksheet.merge_range(0, 0, 0, 38, ' ', title_format)
-    worksheet.write_rich_string(0, 0, dark_green, '      Candela Technologies : ', black, '{test_name} '.format(test_name=test_name), black_not_bold, '\n{test_notes}'.format(test_notes=test_notes), title_format)
-
+    worksheet.write_rich_string(0, 0, dark_green, '      Candela Technologies : ', black,
+                                '{test_name} '.format(test_name=test_name), black_not_bold,
+                                '\n{test_notes}'.format(test_notes=test_notes), title_format)
 
     worksheet.set_row(1, 75)  # Set height
     worksheet.set_column(0, 0, 10)  # Set width
 
     row = 1
     col = 0
+    worksheet.write(row, col, 'Country\nCode', dblue_bold)
+    col += 1
     worksheet.write(row, col, 'Regulatory\nDomain', dblue_bold)
     col += 1
     worksheet.set_column(col, col, 16)  # Set width
-    worksheet.write(row, col, 'Controller\nTest Rig:\n{test_rig}\nLocation\n{location}'.format(test_rig=args.test_rig, location=args.testbed_location), dblue_bold)
+    worksheet.write(row, col, 'Controller\nTest Rig:\n{test_rig}\nLocation\n{location}'.format(test_rig=args.test_rig,
+                                                                                               location=args.testbed_location),
+                    dblue_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
     worksheet.write(row, col, 'Controller\nChannel', dblue_bold)
@@ -879,8 +1154,13 @@ def main():
     col += 1
     worksheet.write(row, col, 'Tx\nPower\nSetting', dtan_bold)
     col += 1
+    worksheet.write(row, col, 'AP Tx\nPower\nSetting', dtan_bold)
+    col += 1
     worksheet.set_column(col, col, 20)  # Set width
     worksheet.write(row, col, 'Controller Reported\nTotal\nTx Power dBm\nFrom AP Summary', dtan_bold)
+    col += 1
+    worksheet.set_column(col, col, 20)  # Set width
+    worksheet.write(row, col, 'AP Reported\nTotal\nTx Power dBm\n', dtan_bold)
     if (bool(ap_dict)):
         col += 1
         worksheet.set_column(col, col, 20)  # Set width
@@ -930,16 +1210,20 @@ def main():
     worksheet.write(row, col, 'Client Reported\nAntenna\nSignal\ndBm\n SS 4', dpeach_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 1 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain', dpink_bold)
+    worksheet.write(row, col, 'Calculated Antenna 1 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+                    dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 2 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain', dpink_bold)
+    worksheet.write(row, col, 'Calculated Antenna 2 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+                    dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 3 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain', dpink_bold)
+    worksheet.write(row, col, 'Calculated Antenna 3 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+                    dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 4 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain', dpink_bold)
+    worksheet.write(row, col, 'Calculated Antenna 4 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+                    dpink_bold)
     col += 1
     worksheet.set_column(col, col, 20)  # Set width
     worksheet.write(row, col, 'Offset 1 = \nCalculated Antenna 1\n - cc_dbm(per SS)', dyel_bold)
@@ -960,16 +1244,20 @@ def main():
     worksheet.write(row, col, 'Client Calc Beacon dBm\n beacon + pathloss\n + rssi_adj - antenna gain', dblue_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Difference Between\n Controller dBm\n & Client Calc Beacon dBm \n (+/- {diff} dBm)'.format(diff=args.beacon_dbm_diff), dblue_bold)
+    worksheet.write(row, col,
+                    'Difference Between\n Controller dBm\n & Client Calc Beacon dBm \n (+/- {diff} dBm)'.format(
+                        diff=args.beacon_dbm_diff), dblue_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Client Calc\n Combined Signal dBm\n total signal dBm + pathloss\n + rssi_adj - antenna gain', dblue_bold)
+    worksheet.write(row, col,
+                    'Client Calc\n Combined Signal dBm\n total signal dBm + pathloss\n + rssi_adj - antenna gain',
+                    dblue_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
     worksheet.write(row, col, 'Difference Between\n Controller dBm\n& Client Calc Combined\n Signal dBm', dblue_bold)
     col += 1
     worksheet.set_column(col, col, 12)  # Set width
-    worksheet.write(row, col, "PASS /\nFAIL\n( += %s dBm)" % (pf_dbm), dgreen_bold)
+    worksheet.write(row, col, "PASS /\nFAIL\n( Offset within += %s dBm)" % (pf_dbm), dgreen_bold)
     col += 1
     worksheet.set_column(col, col, 24)  # Set width
     worksheet.write(row, col, 'Time Stamp\n', dgreen_bold)
@@ -989,10 +1277,15 @@ def main():
     channels = args.channel.split()
     nss = args.nss.split()
     # args.tx_power.split() will be read later since 6E 20 Mhz does not do tx power 7 8, 40 Mhz does not do power 8
-    txpowers = args.txpower.split()
+    if isinstance(args.txpower, list):
+        txpowers = [str(x) for x in args.txpower]
+    elif isinstance(args.txpower, str):
+        txpowers = args.txpower.split()
+    else:
+        raise ValueError("txpower must be string or list")
 
     # The script has the ability to create a station if one does not exist
-    if (args.create_station):
+    if getattr(args, "create_station", False):
         if (args.radio is None):
             logg.info("WARNING --create needs a radio")
             close_workbook(workbook)
@@ -1001,38 +1294,58 @@ def main():
             if (args.vht160):
                 logg.info("creating station with VHT160 set: {} on radio {}".format(args.station, args.radio))
                 logg.info("cwd lf_associate_ap.pl: {dir}".format(dir=os.getcwd()))
-                subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase", args.ssidpw, "--bssid", args.bssid,
-                                "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
-                                "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode, "--action", "add", "--xsec", "ht160_enable"], timeout=20, capture_output=True)
+                subprocess.run(
+                    ["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase",
+                     args.ssidpw, "--bssid", args.bssid,
+                     "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
+                     "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode,
+                     "--action", "add", "--xsec", "ht160_enable"], timeout=20, capture_output=True, cwd=BASE_DIR)
                 sleep(3)
             else:
                 logg.info("creating station: {} on radio {}".format(args.station, args.radio))
-                subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase", args.ssidpw, "--bssid", args.bssid,
-                                "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
-                                "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode, "--action", "add"], timeout=20, capture_output=True)
+                subprocess.run(
+                    ["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase",
+                     args.ssidpw, "--bssid", args.bssid,
+                     "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
+                     "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode,
+                     "--action", "add"], timeout=20, capture_output=True, cwd=BASE_DIR)
 
         else:
             if (args.vht160):
                 logg.info("creating station with VHT160 set: {} on radio {}".format(args.station, args.radio))
                 print()
-                subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase", args.ssidpw, "--bssid", args.bssid,
-                                "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
-                                "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode, "--action", "add", "--xsec", "ht160_enable"], timeout=20, capture_output=False)
+                subprocess.run(
+                    ["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase",
+                     args.ssidpw, "--bssid", args.bssid,
+                     "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
+                     "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode,
+                     "--action", "add", "--xsec", "ht160_enable"], timeout=20, capture_output=False, cwd=BASE_DIR)
                 sleep(3)
             else:
                 logg.info("creating station: {} on radio {}".format(args.station, args.radio))
-                subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase", args.ssidpw, "--bssid", args.bssid,
-                                "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
-                                "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode, "--action", "add"], timeout=20, capture_output=False)
+                l = ["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase",
+                     args.ssidpw, "--bssid", args.bssid, "--resource", args.lfresource,
+                     "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
+                     "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode,
+                     "--action", "add"]
+                print("XXXXXX", l)
+                subprocess.run(
+                    ["./lf_associate_ap.pl", "--mgr", lfmgr, "--radio", args.radio, "--ssid", args.ssid, "--passphrase",
+                     args.ssidpw, "--bssid", args.bssid, "--resource", args.lfresource,
+                     "--security", args.security, "--upstream", args.upstream_port, "--first_ip", "DHCP",
+                     "--first_sta", args.station, "--ieee80211w", args.ieee80211w, "--wifi_mode", args.wifi_mode,
+                     "--action", "add"], cwd=BASE_DIR, timeout=20, capture_output=False)
         sleep(3)
 
     # Find LANforge station parent radio
     parent = None
-    logg.info("portmod command: ./lf_portmod.pl --manager {lfmgr} --card {lfresource} --port_name {lfstation} --show_port Parent/Peer".format(
-        lfmgr=lfmgr, lfresource=lfresource, lfstation=lfstation))
+    logg.info(
+        "portmod command: ./lf_portmod.pl --manager {lfmgr} --card {lfresource} --port_name {lfstation} --show_port Parent/Peer".format(
+            lfmgr=lfmgr, lfresource=lfresource, lfstation=lfstation))
     port_stats = subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                 "--show_port", "Parent/Peer"], capture_output=True)
+                                 "--show_port", "Parent/Peer"], capture_output=True, cwd=BASE_DIR)
     pss = port_stats.stdout.decode('utf-8', 'ignore')
+    print("pss", pss)
     for line in pss.splitlines():
         m = re.search('Parent/Peer:\\s+(.*)', line)
         if (m is not None):
@@ -1041,56 +1354,68 @@ def main():
     # Create downstream connection
     # First, delete any old one
     subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                    "--cmd", "rm_cx all c-udp-power"], capture_output=False)
+                    "--cmd", "rm_cx all c-udp-power"], capture_output=False, cwd=BASE_DIR)
 
     subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                    "--cmd", "rm_endp c-udp-power-A"], capture_output=False)
+                    "--cmd", "rm_endp c-udp-power-A"], capture_output=False, cwd=BASE_DIR)
 
     subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource2, "--action", "do_cmd",
-                    "--cmd", "rm_endp c-udp-power-B"], capture_output=False)
+                    "--cmd", "rm_endp c-udp-power-B"], capture_output=False, cwd=BASE_DIR)
     # Now, create the new connection
     # higher is better because it means more frames at the signal level to be measured vs leaked frames at low signal lev
 
-    subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_endp", "--port_name", lfstation,
-                    "--endp_type", "lf_udp", "--endp_name", "c-udp-power-A", "--speed", "0", "--report_timer", "1000"], capture_output=False)
-    subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource2, "--action", "create_endp", "--port_name", upstream_port,
-                "--endp_type", "lf_udp", "--endp_name", "c-udp-power-B", "--speed", "100000000", "--report_timer", "1000"], capture_output=False)
-    subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_cx", "--cx_name", "c-udp-power",
-                    "--cx_endps", "c-udp-power-A,c-udp-power-B", "--report_timer", "1000"], capture_output=False)
-    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_endp", "--port_name", lfstation,
-                    "--endp_type", "lf_udp", "--endp_name", "c-udp-power-A", "--speed", "9600", "--report_timer", "1000"]    
+    subprocess.run(
+        ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_endp", "--port_name",
+         lfstation,
+         "--endp_type", "lf_udp", "--endp_name", "c-udp-power-A", "--speed", "0", "--report_timer", "1000"],
+        capture_output=False, cwd=BASE_DIR)
+    subprocess.run(
+        ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource2, "--action", "create_endp", "--port_name",
+         upstream_port,
+         "--endp_type", "lf_udp", "--endp_name", "c-udp-power-B", "--speed", "100000000", "--report_timer", "1000"],
+        capture_output=False, cwd=BASE_DIR)
+    subprocess.run(
+        ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_cx", "--cx_name",
+         "c-udp-power",
+         "--cx_endps", "c-udp-power-A,c-udp-power-B", "--report_timer", "1000"], capture_output=False, cwd=BASE_DIR)
+    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_endp",
+               "--port_name", lfstation,
+               "--endp_type", "lf_udp", "--endp_name", "c-udp-power-A", "--speed", "9600", "--report_timer", "1000"]
     logg.info("command: {command}".format(command=command))
     summary_output = ''
-    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in iter(summary.stdout.readline, ''):
         logger.debug(line)
         summary_output += line
     summary.wait()
-    logger.info(summary_output)  
+    logger.info(summary_output)
 
-    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource2, "--action", "create_endp", "--port_name", upstream_port,
-                    "--endp_type", "lf_udp", "--endp_name", "c-udp-power-B", "--speed", "100000000", "--report_timer", "1000"]
+    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource2, "--action", "create_endp",
+               "--port_name", upstream_port,
+               "--endp_type", "lf_udp", "--endp_name", "c-udp-power-B", "--speed", "100000000", "--report_timer",
+               "1000"]
     logg.info("command: {command}".format(command=command))
     summary_output = ''
-    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in iter(summary.stdout.readline, ''):
         logger.debug(line)
         summary_output += line
     summary.wait()
-    logger.info(summary_output)  
+    logger.info(summary_output)
     # ./lf_firemod.pl --manager 192.168.100.178 --resource 1 --action create_cx --cx_name c-udp-power --cx_endps c-udp-power-A,c-udp-power-B --report_timer 1000 --endp_type lf_udp --port_name sta0003 --use_speeds 0,1000000
-    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_cx", "--cx_name", "c-udp-power",
-                    "--cx_endps", "c-udp-power-A,c-udp-power-B", "--report_timer", "1000", "--endp_type", "lf_udp", "--port_name", lfstation,
-                    "--use_speeds","9600,100000000"]
+    command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "create_cx", "--cx_name",
+               "c-udp-power",
+               "--cx_endps", "c-udp-power-A,c-udp-power-B", "--report_timer", "1000", "--endp_type", "lf_udp",
+               "--port_name", lfstation,
+               "--use_speeds", "9600,100000000"]
     logg.info("command: {command}".format(command=command))
     summary_output = ''
-    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in iter(summary.stdout.readline, ''):
         logger.debug(line)
         summary_output += line
     summary.wait()
-    logger.info(summary_output)  
-
+    logger.info(summary_output)
 
     # Notes:
     # These need to be verified with test_ip_variable_time.py - which calculates the speeds
@@ -1106,40 +1431,33 @@ def main():
 
     # ./lf_firemod.pl --manager 192.168.100.178 --resource 1 --action create_cx --cx_name c-udp-power --cx_endps c-udp-power-A,c-udp-power-B --report_timer 1000 --endp_type udp --port_name sta0000 --speed 1000000
 
-    # 5ghz speeds 
+    # 5ghz speeds
 
-    myrd = ""
+    # myrd = "NA"
+    # mycc = ""
     # The script supports both the 9800 series controller and the 3504 series controller ,  the controllers have different interfaces
-    if args.series == "9800":
+    # if args.series == "9800":
+    #
+    #   cs.no_logging_console()
+    #   cs.line_console_0()
+    if cs:
+        cs.series = "9800"
+        cs.testbed_location = args.testbed_location
+        cs.console_setup()
 
-        cs.no_logging_console()
-        cs.line_console_0()
-    # TODO
-    pss = cs.show_ap_summary()
-    logg.info(pss)
+        cs.read_country_code_and_regulatory_domain()
 
-    # Find our current regulatory domain so we can report it properly
-    searchap = False
-    for line in pss.splitlines():
-        if (line.startswith("---------")):
-            searchap = True
-            continue
-        # the summaries are different between the 9800 series controller and the 3504 series
-        # if the output changes then the following pattern/regular expression parcing needs to be changed
-        # this site may help: https://regex101.com/
-        # when using https://regex101.com/ for tool beginning of string begins with ^
-        if (searchap):
-            if args.series == "9800":
-                pat = "%s\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+%s\\s+(\\S+)" % (args.ap, args.testbed_location)
-            else:
-                pat = "%s\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+.*  (\\S+)\\s+\\S+\\s*\\S+\\s+\\[" % (args.ap)
-            m = re.search(pat, line)
-            if (m is not None):
-                myrd = m.group(1)
-                logger.info("Regulatory Domain from show AP Summary : {domain}".format(domain=myrd))
 
-    if myrd == "":
-        logger.error("Regulatory domain is blank: --testbed_location <show ap summary Location> : location entered {location}".format(location=args.testbed_location))
+
+        cs.read_ap_config_radio_role()
+        ap_config_radio_role = cs.ap_config_radio_role
+    myrd = args.country
+    mycc = args.country
+
+    # this reads if the radio role is 'Manual' or 'Auto'
+    # A Manual role has the channel, channel width and tx_power
+    # stay on the settings that are set in the AP or controller
+    #ap_config_radio_role = cs.ap_config_radio_role
 
     # these are set to configure the number of spatial streams and MCS values
     # 5g has 8 spatial streams , MCS is 7, 9, 11
@@ -1149,12 +1467,17 @@ def main():
     # Loop through all iterations and run txpower tests.
     # The is the main loop of loops:   Channels, spatial streams (nss), bandwidth (bw), txpowers (tx)
     # Note: supports 9800 and 3504 controllers
-    wlan_created = False
     # create blank time stamp
     total_run_duration = datetime.timedelta(0)
     run_start_time = datetime.datetime.now()
     run_start_time_str = str(datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")).replace(':', '-')
     logger.info("run_start_time : {run_start_time}".format(run_start_time=run_start_time_str))
+    if isinstance(args.channel, str):
+        channels = args.channel.split()
+    elif isinstance(args.channel, list):
+        channels = args.channel
+    else:
+        channels = [str(args.channel)]
     for ch in channels:
         pathloss = args.pathloss
         antenna_gain = args.antenna_gain
@@ -1163,6 +1486,32 @@ def main():
             cha = ch.split(":")
             pathloss = cha[1]
             ch = cha[0]
+        # the mtk7921 needs to have the radio channel set and not be auto
+        if args.mtk7921k:
+            if args.band == '6g' or args.band == 'dual_band_6g':
+                lf_chan = str(int(ch) + 190)
+            else:
+                lf_chan = ch
+
+            logger.debug(
+                "mtk7921 channel change setting the radio {radio} band {band} channel {chan} lanforge {lf_chan}".
+                format(radio=args.radio, band=args.band, chan=ch, lf_chan=lf_chan))
+            try:
+                modify_radio = lf_modify_radio.lf_modify_radio(lf_mgr=args.lfmgr,
+                                                               lf_port=args.lfport,
+                                                               lf_user=args.lfuser,
+                                                               lf_passwd=args.lfpasswd,
+                                                               debug=args.debug
+                                                               )
+                shelf, resource, radio, *nil = LFUtils.name_to_eid(args.radio)
+                modify_radio.set_wifi_radio(_resource=resource,
+                                            _radio=radio,
+                                            _shelf=shelf,
+                                            _channel=lf_chan)
+            except Exception as x:
+                traceback.print_exception(Exception, x, x.__traceback__, chain=True)
+                logger.warning("mtk7921 failed to set channel {chan} after channel change".format(chan=ch))
+
         for n in nss:
             if (n != "NA" and args.set_nss):
                 # Disable the wlan to set the spatial streams
@@ -1179,7 +1528,7 @@ def main():
                     cs.ap_dot11_5ghz_shutdown()
                 elif args.band == "24g":
                     cs.ap_dot11_24ghz_shutdown()
-                
+
                 # the band will be set
                 num_spatial_streams = int(n)
                 # set the spatial streams for   - need to disable the wlan and re-enable
@@ -1291,18 +1640,22 @@ def main():
                 if (n != "NA"):
                     ni = int(n)
                     if (parent is None):
-                        logg.info("ERROR:  Skipping setting the spatial streams because cannot find Parent radio for station: %s." % (lfstation))
+                        logg.info(
+                            "ERROR:  Skipping setting the spatial streams because cannot find Parent radio for station: %s." % (
+                                lfstation))
                     else:
                         # Set nss on LANforge Station, not sure it can be done on AP
                         # for ax210, it can do any bandwidth at up to 2 NSS
                         # for 9984 (wave-2), it does have restrictions
                         # 9984 can do 4x4 at 80Mhz, and 2x2 at 160Mhz
                         if (bw == "160"):
-                            if(args.vht160):
+                            if (args.vht160):
                                 # for 9984 (wave-2) for 160 Mhz set for 160 set ni = 2
-                                if(args.wave2):
+                                if (args.wave2):
                                     ni = int(2)
-                                    logg.info("NOTE: wave2 (9984) has restrictions : 160Mhz is 2x2 --vht160 set and will set ni : {}".format(ni))
+                                    logg.info(
+                                        "NOTE: wave2 (9984) has restrictions : 160Mhz is 2x2 --vht160 set and will set ni : {}".format(
+                                            ni))
                             else:
                                 logg.info("NOTE: Skipping NSS %s for 160Mhz, LANforge needs 160Mhz enabled." % (n))
                                 logg.info("NOTE: use --vht160 to force 160Mhz")
@@ -1319,7 +1672,7 @@ def main():
                     set_cmd = "set_wifi_radio 1 %s %s NA NA NA NA NA NA NA NA NA %s" % (lfresource, parent, antset)
                     logg.info("Setting LANforge radio to %s NSS with command: %s" % (ni, set_cmd))
                     subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", parent,
-                                    "--cli_cmd", set_cmd], capture_output=True)
+                                    "--cli_cmd", set_cmd], capture_output=True, cwd=BASE_DIR)
                 # tx power 1 is the highest power ,  2 power is 1/2 of 1 power etc till power 8 the lowest.
                 # 6E 20Mhz tx power 1 - 6
                 # 6E 40Mhz tx power 1 - 7
@@ -1344,35 +1697,36 @@ def main():
 
                     # Stop traffic , if traffic was running ,  this is on the lanforge side.  Commands that start with lf_ are directed
                     # towards the lanforge
-                    subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                                    "--cmd", "set_cx_state all c-udp-power STOPPED"], capture_output=True)
+                    subprocess.run(
+                        ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
+                         "--cmd", "set_cx_state all c-udp-power STOPPED"], capture_output=True, cwd=BASE_DIR)
                     command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                                     "--cmd", "set_cx_state all c-udp-power STOPPED"]
+                               "--cmd", "set_cx_state all c-udp-power STOPPED"]
                     summary_output = ''
-                    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE,
+                                               stderr=subprocess.STDOUT)
                     for line in iter(summary.stdout.readline, ''):
                         logger.debug(line)
                         summary_output += line
                     summary.wait()
-                    logger.info(summary_output)  
-
+                    logger.info(summary_output)
 
                     # Down station
-                    # port_stats = subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                    #                              "--set_ifstate", "down"])
-                    # CMR TODO this looks to be an issue
+                    # CMR TODO this looks to be an issue  7/15/2022
                     command = ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                                  "--set_ifstate", "down"]
+                               "--set_ifstate", "down"]
                     summary_output = ''
-                    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE,
+                                               stderr=subprocess.STDOUT)
                     for line in iter(summary.stdout.readline, ''):
                         logger.debug(line)
                         summary_output += line
                     summary.wait()
-                    logger.info(summary_output)  
+                    logger.info(summary_output)
+                    if cs:
+                        cs.show_ap_summary()
 
-                    cs.show_ap_summary()
-
+                    # Begin setting client Serving mode , Dual band and creating dual-band
                     # when both 5g (slot 1) is enabled and dual-band 5g (slot 2) is enabled .
                     # 5g slot 1 will used the 5g channels to 64,  the 5g dual-band will use channels 100 -> 165.
                     # When 5g (slot 1) and dual-band 6g (slot 2) is enabled then 5g (slot 1) has all bands.
@@ -1380,131 +1734,158 @@ def main():
                     # if dual band : disable dual-band mode, config mode, enable dual-band mode
                     # disable dual-band mode
                     # for other bands just disable the radio
-                    if args.band == "dual_band_6g":
-                        logg.info("ap_dot11_dual_band_mode_shutdown_6ghz")
-                        cs.ap_dot11_dual_band_mode_shutdown_6ghz()
-                    elif args.band == "dual_band_5g":
-                        logg.info("ap_dot11_dual_band_mode_shutdown_5ghz")
-                        cs.ap_dot11_dual_band_mode_shutdown_5ghz()
-                    elif args.band == "6g":
-                        logg.info("ap_dot11_shutdown_6ghz")
-                        cs.show_ap_dot11_6gz_shutdown()
-                    elif args.band == "5g":
-                        logg.info("ap_dot11_shutdown_5ghz")
-                        cs.show_ap_dot11_5gz_shutdown()
-                    elif args.band == "24g":
-                        logg.info("ap_dot11_shutdown_24ghz")
-                        cs.show_ap_dot11_24gz_shutdown()
 
+                        if args.band == "dual_band_6g":
+                            logg.info("ap_dot11_dual_band_mode_shutdown_6ghz")
+                            cs.ap_dot11_dual_band_mode_shutdown_6ghz()
+                        elif args.band == "dual_band_5g":
+                            logg.info("ap_dot11_dual_band_mode_shutdown_5ghz")
+                            cs.ap_dot11_dual_band_mode_shutdown_5ghz()
+                        elif args.band == "6g":
+                            logg.info("ap_dot11_shutdown_6ghz")
+                            cs.show_ap_dot11_6gz_shutdown()
+                        elif args.band == "5g":
+                            logg.info("ap_dot11_shutdown_5ghz")
+                            cs.show_ap_dot11_5gz_shutdown()
+                        elif args.band == "24g":
+                            logg.info("ap_dot11_shutdown_24ghz")
+                            cs.show_ap_dot11_24gz_shutdown()
 
                     # if dual band : disable dual-band mode, config mode, enable dual-band mode
                     # disable dual-band mode
 
+                    # set the radio role selection if not set
+                    # if ap_config_radio_role != 'Manual':
+                    #     if args.band == 'dual_band_6g':
+                    #         logg.info("ap_dot11_dual_band_6ghz_radio_role_manual_client_serving")
+                    #         cs.ap_dot11_dual_band_6ghz_radio_role_manual_client_serving()
+                    #     elif args.band == 'dual_band_5g':
+                    #         logg.info("ap_dot11_dual_band_5ghz_radio_role_manual_client_serving")
+                    #         cs.ap_dot11_dual_band_5ghz_radio_role_manual_client_serving()
+                    #     elif args.band == '6g':
+                    #         cs.ap_dot11_6ghz_radio_role_manual_client_serving()
+                    #         logg.info("ap_dot11_6ghz_radio_role_manual_client_serving")
+                    #     elif args.band == '5g':
+                    #         cs.ap_dot11_5ghz_radio_role_manual_client_serving()
+                    #         logg.info("ap_dot11_5ghz_radio_role_manual_client_serving")
+                    #     elif args.band == '24g':
+                    #         cs.ap_dot11_24ghz_radio_role_manual_client_serving()
+                    #         logg.info("ap_dot11_24ghz_radio_role_manual_client_serving")
+                    #
+                    # # config dual-band mode
+                    # if args.band == "dual_band_6g":
+                    #     cs.config_ap_dot11_dual_band_to_6ghz()
+                    # elif args.band == "dual_band_5g":
+                    #     cs.config_ap_dot11_dual_band_to_5ghz()
+                    #
+                    # # enable  dual-band mode
+                    # if args.band == "dual_band_6g":
+                    #     cs.ap_dot11_dual_band_no_mode_shutdown_6ghz()
+                    # elif args.band == "dual_band_5g":
+                    #     cs.ap_dot11_dual_band_no_mode_shutdown_5ghz()
+                    #
+                    # # Disable AP, apply settings, enable AP
+                    # if args.band == "dual_band_6g":
+                    #     cs.ap_dot11_dual_band_6ghz_shutdown()
+                    # elif args.band == "dual_band_5g":
+                    #     cs.ap_dot11_dual_band_5ghz_shutdown()
+                    # elif args.band == "6g":
+                    #     cs.ap_dot11_6ghz_shutdown()
+                    # elif args.band == "5g":
+                    #     cs.ap_dot11_5ghz_shutdown()
+                    # elif args.band == "24g":
+                    #     cs.ap_dot11_24ghz_shutdown()
 
-                    # set the radio role selection
-                    if args.band == 'dual_band_6g':
-                        logg.info("ap_dot11_dual_band_6ghz_radio_role_manual_client_serving")
-                        cs.ap_dot11_dual_band_6ghz_radio_role_manual_client_serving()
-                    elif args.band == 'dual_band_5g':
-                        logg.info("ap_dot11_dual_band_5ghz_radio_role_manual_client_serving")
-                        cs.ap_dot11_dual_band_5ghz_radio_role_manual_client_serving()
-                    elif args.band == '6g':
-                        cs.ap_dot11_6ghz_radio_role_manual_client_serving()
-                        logg.info("ap_dot11_6ghz_radio_role_manual_client_serving")
-                    elif args.band == '5g':
-                        cs.ap_dot11_5ghz_radio_role_manual_client_serving()
-                        logg.info("ap_dot11_5ghz_radio_role_manual_client_serving")
-                    elif args.band == '24g':
-                        cs.ap_dot11_24ghz_radio_role_manual_client_serving()
-                        logg.info("ap_dot11_24ghz_radio_role_manual_client_serving")
-
-                    # config dual-band mode
-                    if args.band == "dual_band_6g":
-                        cs.config_ap_dot11_dual_band_to_6ghz()
-                    elif args.band == "dual_band_5g":
-                        cs.config_ap_dot11_dual_band_to_5ghz()
-
-                    # enable  dual-band mode
-                    if args.band == "dual_band_6g":
-                        cs.ap_dot11_dual_band_no_mode_shutdown_6ghz()
-                    elif args.band == "dual_band_5g":
-                        cs.ap_dot11_dual_band_no_mode_shutdown_5ghz()
-
-                    # Disable AP, apply settings, enable AP
-                    if args.band == "dual_band_6g":
-                        cs.ap_dot11_dual_band_6ghz_shutdown()
-                    elif args.band == "dual_band_5g":
-                        cs.ap_dot11_dual_band_5ghz_shutdown()
-                    elif args.band == "6g":
-                        cs.ap_dot11_6ghz_shutdown()
-                    elif args.band == "5g":
-                        cs.ap_dot11_5ghz_shutdown()
-                    elif args.band == "24g":
-                        cs.ap_dot11_24ghz_shutdown()
-
-                    if args.series == "9800":
-                        # 9800 series need to  "Configure radio for manual channel assignment"
-                        logg.info("9800 Configure radio for manual channel assignment")
-                        cs.wlan_shutdown()
-                        if args.band == 'dual_band_6g':
-                            cs.ap_dot11_dual_band_6ghz_shutdown()
-                        elif args.band == 'dual_band_5g':
-                            cs.ap_dot11_dual_band_5ghz_shutdown()
-                        elif args.band == '6g':
-                            cs.ap_dot11_6ghz_shutdown()
-                        elif args.band == '5g':
-                            cs.ap_dot11_5ghz_shutdown()
-                        elif args.band == '24g':
-                            cs.ap_dot11_24ghz_shutdown()
-
-
-                    else:
-                        cs.ap_dot11_5ghz_shutdown()
-                        cs.ap_dot11_24ghz_shutdown()
-
-                    logg.info("9800/3504 test_parameters_summary: set : tx: {tx_power} ch: {channel} bw: {bandwidth}".format(
-                        tx_power=tx, channel=ch, bandwidth=bw))
+                    # if args.series == "9800":
+                    #     # 9800 series need to  "Configure radio for manual channel assignment"
+                    #     logg.info("9800 Configure radio for manual channel assignment")
+                    #     cs.wlan_shutdown()
+                    #     if args.band == 'dual_band_6g':
+                    #         cs.ap_dot11_dual_band_6ghz_shutdown()
+                    #     elif args.band == 'dual_band_5g':
+                    #         cs.ap_dot11_dual_band_5ghz_shutdown()
+                    #     elif args.band == '6g':
+                    #         cs.ap_dot11_6ghz_shutdown()
+                    #     elif args.band == '5g':
+                    #         cs.ap_dot11_5ghz_shutdown()
+                    #     elif args.band == '24g':
+                    #         cs.ap_dot11_24ghz_shutdown()
+                    #
+                    # else:
+                    #     cs.ap_dot11_5ghz_shutdown()
+                    #     cs.ap_dot11_24ghz_shutdown()
+                    #
+                    # logg.info(
+                    #     "9800/3504 test_parameters_summary: set : tx: {tx_power} ch: {channel} bw: {bandwidth}".format(
+                    #         tx_power=tx, channel=ch, bandwidth=bw))
                     if (tx != "NA"):
                         logg.info("9800/3504 test_parameters: set txPower: {tx_power}".format(tx_power=tx))
-                        cs.tx_power = tx
+                        if cs:
+                            cs.tx_power = tx
 
                         if args.band == 'dual_band_6g':
-                            cs.config_dot11_dual_band_6ghz_tx_power()
+                            if args.skip_dut:
+                                hfcl_target.apply_txpower_json(int(tx), args.band)
+                            else:
+                                cs.config_dot11_dual_band_6ghz_tx_power()
                         elif args.band == 'dual_band_5g':
-                            cs.config_dot11_dual_band_5ghz_tx_power()
+                            if args.skip_dut:
+                                hfcl_target.apply_txpower_json(int(tx), args.band)
+                            else:
+                                cs.config_dot11_dual_band_5ghz_tx_power()
                         elif args.band == '6g':
-                            cs.config_dot11_6ghz_tx_power()
+                            if args.skip_dut:
+                                hfcl_target.apply_txpower_json(int(tx), args.band)
+                            else:
+                                cs.config_dot11_6ghz_tx_power()
                         elif args.band == '5g':
-                            cs.config_dot11_5ghz_tx_power()
+                            if args.skip_dut:
+                                hfcl_target.apply_txpower_json(int(tx), args.band)
+                            else:
+                                cs.config_dot11_5ghz_tx_power()
                         elif args.band == '24g':
-                            cs.config_dot11_24ghz_tx_power()
+                            if args.skip_dut:
+                                hfcl_target.apply_txpower_json(int(tx), args.band)
+                            else:
+                                cs.config_dot11_24ghz_tx_power()
 
                     # NSS is set on the station earlier...
                     if (ch != "NA"):
                         logg.info("9800/3504 test_parameters set channel: {}".format(ch))
-                        cs.channel = ch
+                        if cs:
+                            cs.channel = ch
                         if args.band == 'dual_band_6g':
-                            cs.config_dot11_dual_band_6ghz_channel()
+                            if not args.skip_dut:
+                                cs.config_dot11_dual_band_6ghz_channel()
                         elif args.band == 'dual_band_5g':
-                            cs.config_dot11_dual_band_5ghz_channel()
+                            if not args.skip_dut:
+                                cs.config_dot11_dual_band_5ghz_channel()
                         elif args.band == '6g':
-                            cs.config_dot11_6ghz_channel()
+                            if not args.skip_dut:
+                                cs.config_dot11_6ghz_channel()
                         elif args.band == '5g':
-                            cs.config_dot11_5ghz_channel()
+                            if not args.skip_dut:
+                                cs.config_dot11_5ghz_channel()
                         elif args.band == '24g':
-                            cs.config_dot11_24ghz_channel()
+                            if not args.skip_dut:
+                                cs.config_dot11_24ghz_channel()
 
                     if (bw != "NA"):
                         logg.info("9800/3504 test_parameters bandwidth: set : {}".format(bw))
-                        cs.bandwidth = bw
+                        if cs:
+                            cs.bandwidth = bw
                         if args.band == 'dual_band_6g':
-                            cs.config_dot11_dual_band_6ghz_channel_width()
+                            if not args.skip_dut:
+                                cs.config_dot11_dual_band_6ghz_channel_width()
                         elif args.band == 'dual_band_5g':
-                            cs.config_dot11_dual_band_5ghz_channel_width()
+                            if not args.skip_dut:
+                                cs.config_dot11_dual_band_5ghz_channel_width()
                         elif args.band == '6g':
-                            cs.config_dot11_6ghz_channel_width()
+                            if not args.skip_dut:
+                                cs.config_dot11_6ghz_channel_width()
                         elif args.band == '5g':
-                            cs.config_dot11_5ghz_channel_width()
+                            if not args.skip_dut:
+                                cs.config_dot11_5ghz_channel_width()
                         elif args.band == '24g':
                             # 24g can only be 20 Mhz
                             pass
@@ -1534,7 +1915,7 @@ def main():
                                 pss = cs.show_ap_dot11_6gz_summary()
                                 logg.info(pss)
                                 pss = cs.show_ap_bssid_6ghz()
-                                logg.info(pss)   
+                                logg.info(pss)
                             elif args.band == '5g':
                                 pss = cs.show_ap_dot11_5gz_summary()
                                 logg.info(pss)
@@ -1545,9 +1926,6 @@ def main():
                                 logg.info(pss)
                                 pss = cs.show_ap_bssid_24ghz()
                                 logg.info(pss)
-
-
-                            
                         else:
                             # Verify that a wlan does not exist on wlanID
                             # delete the wlan if already exists
@@ -1564,7 +1942,7 @@ def main():
                             elif args.band == '24g':
                                 cs.show_ap_dot11_24gz_summary()
 
-                            #  "number of WLANs:\s+(\S+)"
+                            #  "number of WLANs:\\s+(\\S+)"
                             # https://regex101.com/
                             search_wlan = False
                             for line in pss.splitlines():
@@ -1579,9 +1957,14 @@ def main():
                                         cc_wlan = m.group(1)
                                         cc_wlan_ssid = m.group(2)
                                         # wlanID is in use
-                                        logg.info("###############################################################################")
-                                        logg.info("Need to remove wlanID: {} cc_wlan: {} cc_wlan_ssid: {}".format(args.wlanID, cc_wlan, cc_wlan_ssid))
-                                        logg.info("###############################################################################")
+                                        logg.info(
+                                            "###############################################################################")
+                                        logg.info(
+                                            "Need to remove wlanID: {} cc_wlan: {} cc_wlan_ssid: {}".format(args.wlanID,
+                                                                                                            cc_wlan,
+                                                                                                            cc_wlan_ssid))
+                                        logg.info(
+                                            "###############################################################################")
                                         cs.config_no_wlan()
 
                             # Create wlan
@@ -1605,76 +1988,78 @@ def main():
                     # enable transmission for the entier 802.11z network
                     # the wlan may not care about dual_band
                     # enable_network_6ghz or enable_network_5ghz or enable_network_24ghz
-                    if args.band == 'dual_band_6g':
-                        # enable 6g wlan
-                        pss = cs.config_no_ap_dot11_dual_band_6ghz_shutdown()
-                        logg.info(pss)
-                        # enable 6g operation status
-                        pss = cs.config_ap_no_dot11_dual_band_6ghz_shutdown()
-                        logg.info(pss)
-                        
-                        # enable 6g wlan
-                        pss = cs.config_no_ap_dot11_6ghz_shutdown()
-                        logg.info(pss)
-                        # enable 6g operation status
-                        pss = cs.config_ap_no_dot11_6ghz_shutdown()
-                        logg.info(pss)
-
-                        # enable 5g wlan to show scans
-                        pss = cs.config_no_ap_dot11_5ghz_shutdown()
-                        logger.info(pss)
-                        # enable 5g operation status
-                        pss = cs.config_ap_no_dot11_5ghz_shutdown()
-                        logger.info(pss)
-
-                    elif args.band == 'dual_band_5g':
-                        # enable 5g wlan - dual band 
-                        pss = cs.config_no_ap_dot11_dual_band_5ghz_shutdown()
-                        logg.info(pss)
-                        # enable 5g operation status
-                        pss = cs.config_ap_no_dot11_dual_band_5ghz_shutdown()
-                        logg.info(pss)
-                        # enable 5g wlan
-                        pss = cs.config_no_ap_dot11_5ghz_shutdown()
-                        logger.info(pss)
-                        # enable 5g operation status
-                        pss = cs.config_ap_no_dot11_5ghz_shutdown()
-                        logger.info(pss)
-
-                    elif args.band == '6g':
-                        # enable 6g wlan
-                        pss = cs.config_no_ap_dot11_6ghz_shutdown()
-                        logg.info(pss)
-                        # enable 6g operation status
-                        pss = cs.config_ap_no_dot11_6ghz_shutdown()
-                        logg.info(pss)
-                        # 6g needs to see the 5g bands
-                        # enable 5g wlan
-                        pss = cs.config_no_ap_dot11_5ghz_shutdown()
-                        logger.info(pss)
-                        # enable 5g operation status
-                        pss = cs.config_ap_no_dot11_5ghz_shutdown()
-                        logger.info(pss)
-
-                    elif args.band == '5g':
-                        # enable 5g wlan
-                        pss = cs.config_no_ap_dot11_5ghz_shutdown()
-                        logg.info(pss)
-                        # enable 5g operation status
-                        pss = cs.config_ap_no_dot11_5ghz_shutdown()
-                        logg.info(pss)
-                    elif args.band == '24g':
-                        # enable wlan 24ghz
-                        pss = cs.config_no_ap_dot11_24ghz_shutdown()
-                        logg.info(pss)
-                        # enable 24ghz operation status
-                        cs.config_ap_no_dot11_24ghz_shutdown()
-                        logg.info(pss)
+                    # if args.band == 'dual_band_6g':
+                    #     # enable 6g wlan
+                    #     pss = cs.config_no_ap_dot11_dual_band_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 6g operation status
+                    #     pss = cs.config_ap_no_dot11_dual_band_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #
+                    #     # enable 6g wlan
+                    #     pss = cs.config_no_ap_dot11_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 6g operation status
+                    #     pss = cs.config_ap_no_dot11_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #
+                    #     # enable 5g wlan to show scans
+                    #     pss = cs.config_no_ap_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #     # enable 5g operation status
+                    #     pss = cs.config_ap_no_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #
+                    # elif args.band == 'dual_band_5g':
+                    #     # enable 5g wlan - dual band
+                    #     pss = cs.config_no_ap_dot11_dual_band_5ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 5g operation status
+                    #     pss = cs.config_ap_no_dot11_dual_band_5ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 5g wlan
+                    #     pss = cs.config_no_ap_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #     # enable 5g operation status
+                    #     pss = cs.config_ap_no_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #
+                    # elif args.band == '6g':
+                    #     # enable 6g wlan
+                    #     pss = cs.config_no_ap_dot11_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 6g operation status
+                    #     pss = cs.config_ap_no_dot11_6ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # 6g needs to see the 5g bands
+                    #     # enable 5g wlan
+                    #     pss = cs.config_no_ap_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #     # enable 5g operation status
+                    #     pss = cs.config_ap_no_dot11_5ghz_shutdown()
+                    #     logger.info(pss)
+                    #
+                    # elif args.band == '5g':
+                    #     # enable 5g wlan
+                    #     pss = cs.config_no_ap_dot11_5ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 5g operation status
+                    #     pss = cs.config_ap_no_dot11_5ghz_shutdown()
+                    #     logg.info(pss)
+                    # elif args.band == '24g':
+                    #     # enable wlan 24ghz
+                    #     pss = cs.config_no_ap_dot11_24ghz_shutdown()
+                    #     logg.info(pss)
+                    #     # enable 24ghz operation status
+                    #     cs.config_ap_no_dot11_24ghz_shutdown()
+                    #     logg.info(pss)
 
                     # Wait a bit for AP to come back up
                     time.sleep(3)
                     loop_count = 0
                     cc_dbm_rcv = False
+
+                    # TODO this needs to be moved to the module
                     if args.series == "9800":
                         while cc_dbm_rcv is False and loop_count <= 3:
                             logg.info("9800 read controller dBm")
@@ -1684,26 +2069,31 @@ def main():
                             if args.band == 'dual_band_6g':
                                 pss = cs.show_ap_dot11_dual_band_6gz_summary()
                                 logg.info("show ap dot11 dual-band (6ghz) summary")
-                                logg.info("ap: {ap} ap_band_slot_6g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_6g))
+                                logg.info(
+                                    "ap: {ap} ap_band_slot_6g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_6g))
                                 logg.info(pss)
                             elif args.band == 'dual_band_5g':
                                 pss = cs.show_ap_dot11_dual_band_5gz_summary()
                                 logg.info("show ap dot11 dual-band (5ghz) summary")
-                                logg.info("ap: {ap} ap_band_slot_5g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_5g))
+                                logg.info(
+                                    "ap: {ap} ap_band_slot_5g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_5g))
                                 logg.info(pss)
                             elif args.band == '6g':
                                 pss = cs.show_ap_dot11_6gz_summary()
                                 logg.info("show ap dot11 6ghz summary")
-                                logg.info("ap: {ap} ap_band_slot_6g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_6g))
+                                logg.info(
+                                    "ap: {ap} ap_band_slot_6g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_6g))
                                 logg.info(pss)
                             elif args.band == '5g':
                                 logg.info("show ap dot11 5ghz summary")
-                                logg.info("ap: {ap} ap_band_slot_5g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_5g))
+                                logg.info(
+                                    "ap: {ap} ap_band_slot_5g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_5g))
                                 pss = cs.show_ap_dot11_5gz_summary()
                                 logg.info(pss)
                             else:
                                 logg.info("show ap dot11 24ghz summary")
-                                logg.info("ap: {ap} ap_band_slot_24g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_24g))
+                                logg.info(
+                                    "ap: {ap} ap_band_slot_24g: {slot} ".format(ap=args.ap, slot=args.ap_band_slot_24g))
                                 pss = cs.show_ap_dot11_24gz_summary()
                                 logg.info(pss)
 
@@ -1722,65 +2112,91 @@ def main():
                                     logg.info("##### line #####")
                                     logg.info(line)
                                     if args.band == 'dual_band_6g':
-                                        logg.info("ap : {ap} ap_dual_band_slot_6g: {slot}".format(ap=args.ap, slot=args.ap_dual_band_slot_6g))
+                                        logg.info("ap : {ap} ap_dual_band_slot_6g: {slot}".format(ap=args.ap,
+                                                                                                  slot=args.ap_dual_band_slot_6g))
                                     elif args.band == 'dual_band_5g':
-                                        logg.info("ap : {ap} ap_dual_band_slot_5g: {slot}".format(ap=args.ap, slot=args.ap_dual_band_slot_5g))
+                                        logg.info("ap : {ap} ap_dual_band_slot_5g: {slot}".format(ap=args.ap,
+                                                                                                  slot=args.ap_dual_band_slot_5g))
                                     elif args.band == '6g':
-                                        logg.info("ap : {ap} ap_band_slot_6g: {slot}".format(ap=args.ap, slot=args.ap_band_slot_6g))
+                                        logg.info("ap : {ap} ap_band_slot_6g: {slot}".format(ap=args.ap,
+                                                                                             slot=args.ap_band_slot_6g))
                                     elif args.band == '5g':
-                                        logg.info("ap : {ap} ap_band_slot_5g: {slot}".format(ap=args.ap, slot=args.ap_band_slot_5g))
+                                        logg.info("ap : {ap} ap_band_slot_5g: {slot}".format(ap=args.ap,
+                                                                                             slot=args.ap_band_slot_5g))
                                     elif args.band == '24g':
-                                        logg.info("ap : {ap} ap_band_slot_24g: {slot}".format(ap=args.ap, slot=args.ap_band_slot_24g))
+                                        logg.info("ap : {ap} ap_band_slot_24g: {slot}".format(ap=args.ap,
+                                                                                              slot=args.ap_band_slot_24g))
 
                                     if args.band == 'dual_band_6g' or args.band == 'dual_band_5g':
-                                        pat = "%s\\s+(\\S+)\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+dBm\\)+\\s+\\S+\\s+\\S+\\s+(\\S+)" % (args.ap)
+                                        pat = "%s\\s+(\\S+)\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+dBm\\)+\\s+\\S+\\s+\\S+\\s+(\\S+)" % (
+                                            args.ap)
                                     else:
-                                        pat = "%s\\s+(\\S+)\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+dBm\\)+\\s+(\\S+)+\\s" % (args.ap)
+                                        pat = "%s\\s+(\\S+)\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+dBm\\)+\\s+(\\S+)+\\s" % (
+                                            args.ap)
                                     logg.info(pat)
                                     m = re.search(pat, line)
                                     logg.info(m)
                                     ap_band_slot = None
                                     if (m is not None):
                                         if args.band == 'dual_band_6g':
-                                            logg.info("checking of dual-band slot for 6g {band_slot} present in the show ap dot11 dual-band summary".format(band_slot=args.ap_dual_band_slot_6g))
+                                            logg.info(
+                                                "checking of dual-band slot for 6g {band_slot} present in the show ap dot11 dual-band summary".format(
+                                                    band_slot=args.ap_dual_band_slot_6g))
                                             ap_band_slot = args.ap_dual_band_slot_6g
                                         elif args.band == 'dual_band_5g':
-                                            logg.info("checking of dual-band slot for 5g {band_slot} present in the show ap dot11 dual-band summary".format(band_slot=args.ap_dual_band_slot_5g))
+                                            logg.info(
+                                                "checking of dual-band slot for 5g {band_slot} present in the show ap dot11 dual-band summary".format(
+                                                    band_slot=args.ap_dual_band_slot_5g))
                                             ap_band_slot = args.ap_dual_band_slot_5g
                                         elif args.band == '6g':
-                                            logg.info("checking of band slot 6g {band_slot} present in the show ap dot11 6ghz summary".format(band_slot=args.ap_band_slot_6g))
+                                            logg.info(
+                                                "checking of band slot 6g {band_slot} present in the show ap dot11 6ghz summary".format(
+                                                    band_slot=args.ap_band_slot_6g))
                                             ap_band_slot = args.ap_band_slot_6g
                                         elif args.band == '5g':
-                                            logg.info("checking of band slot 5g {band_slot} present in the show ap dot11 5ghz summary".format(band_slot=args.ap_band_slot_5g))
+                                            logg.info(
+                                                "checking of band slot 5g {band_slot} present in the show ap dot11 5ghz summary".format(
+                                                    band_slot=args.ap_band_slot_5g))
                                             ap_band_slot = args.ap_band_slot_5g
                                         elif args.band == '24g':
-                                            logg.info("checking of band slot 24g {band_slot} present in the show ap dot11 24ghz summary".format(band_slot=args.ap_band_slot_24g))
+                                            logg.info(
+                                                "checking of band slot 24g {band_slot} present in the show ap dot11 24ghz summary".format(
+                                                    band_slot=args.ap_band_slot_24g))
                                             ap_band_slot = args.ap_band_slot_24g
                                         else:
-                                            logg.warning("band_slot not set, results will be incomplete setting ap_band_slot to 1")
+                                            logg.warning(
+                                                "band_slot not set, results will be incomplete setting ap_band_slot to 1")
                                             ap_band_slot = '1'
 
-                                        if(m.group(2) == ap_band_slot):
+                                        if (m.group(2) == ap_band_slot):
                                             cc_ap = args.ap
                                             cc_mac = m.group(1)
                                             cc_slot = m.group(2)
                                             cc_ch = m.group(6)  # (132,136,140,144)
                                             cc_power = m.group(4)
-                                            cc_power = cc_power.replace("/", " of ")  # spread-sheets turn 1/8 into a date
+                                            cc_power = cc_power.replace("/",
+                                                                        " of ")  # spread-sheets turn 1/8 into a date
                                             cc_dbm = m.group(5)
                                             cc_dbm = cc_dbm.replace("(", "")
 
-                                            logg.info("ap slot {cc_slot} present in the show ap dot11 {band}hz summary".format(cc_slot=cc_slot, band=args.band))
+                                            logg.info(
+                                                "ap slot {cc_slot} present in the show ap dot11 {band}hz summary".format(
+                                                    cc_slot=cc_slot, band=args.band))
 
                                             cc_ch_count = cc_ch.count(",") + 1
                                             cc_bw = m.group(3)
                                             logg.info("show ap summary : {summary}".format(summary=m.group(0)))
                                             logg.info(
-                                                ("(ap): {ap}, group 1 (cc_mac): {mac}, group 2(ap band slot): {slot}, group 3 (bw): {admin} "
-                                                 "group 4 (cc_Txpwr): {Txpwr}, group 5 (cc_dbm): {dbm}, group 6 (cc_ch): {chan}".format(
-                                                     ap=args.ap, mac=m.group(1), slot=m.group(2), admin=m.group(3), Txpwr=m.group(4),
-                                                     dbm=m.group(5), chan=m.group(6))))
-                                            logg.info("9800 test_parameters_summary:  read: tx: {} ch: {} bw: {}".format(tx, ch, bw))
+                                                (
+                                                "(ap): {ap}, group 1 (cc_mac): {mac}, group 2(ap band slot): {slot}, group 3 (bw): {admin} "
+                                                "group 4 (cc_Txpwr): {Txpwr}, group 5 (cc_dbm): {dbm}, group 6 (cc_ch): {chan}".format(
+                                                    ap=args.ap, mac=m.group(1), slot=m.group(2), admin=m.group(3),
+                                                    Txpwr=m.group(4),
+                                                    dbm=m.group(5), chan=m.group(6))))
+                                            logg.info(
+                                                "9800 test_parameters_summary:  read: tx: {} ch: {} bw: {}".format(tx,
+                                                                                                                   ch,
+                                                                                                                   bw))
 
                                             logg.info("9800  cc_ap:    read : {}".format(cc_ap))
                                             logg.info("9800 from ap summary cc_mac:   read : {}".format(cc_mac))
@@ -1807,7 +2223,13 @@ def main():
                             else:
                                 cc_dbm_rcv = True
                         cs.show_wlan_summary()
-                    else:
+                        # read the AP Tx Power
+                        cs.get_ap_tx_power_config()
+                        ap_dbm = cs.ap_tx_power_dbm
+                        ap_power = "{pw} of {pw_levels}".format(pw=cs.ap_current_tx_power_level,
+                                                                pw_levels=cs.ap_num_power_levels)
+
+                    elif args.series == "3540":
                         pss = cs.show_ap_dot11_5gz_summary()
                         logg.info(pss)
                         pss = cs.show_ap_dot11_24gz_summary()
@@ -1828,7 +2250,8 @@ def main():
                                 continue
 
                             if (searchap):
-                                pat = "%s\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+\\(\\s*(\\S+)\\s+dBm" % (args.ap)
+                                pat = "%s\\s+(\\S+)\\s+\\S+\\s+\\S+\\s+\\S+\\s+(\\S+)\\s+(\\S+)\\s+\\(\\s*(\\S+)\\s+dBm" % (
+                                    args.ap)
                                 m = re.search(pat, line)
                                 if (m is not None):
                                     cc_mac = m.group(1)
@@ -1856,9 +2279,136 @@ def main():
                         logg.info("3504 test_parameters cc_dbm: read : {}".format(cc_dbm))
                         logg.info("3504 test_parameters cc_ch: read : {}".format(cc_ch))
 
+                        # read the AP Tx Power
+                        cs.get_ap_tx_power_config()
+                        ap_dbm = cs.ap_tx_power_dbm
+                        ap_power = "{pw} of {pw_levels}".format(pw=cs.ap_current_tx_power_level,
+                                                                pw_levels=cs.ap_num_power_levels)
+
+                    # Generic Modules
+                    else:
+                        output = dut.run_generic_command("iw dev")
+
+                        cc_mac = "N/A"
+                        cc_ch = "N/A"
+                        cc_power = "N/A"
+                        cc_dbm = "N/A"
+                        ch_count = "N/A"
+                        cc_bw = "N/A"
+
+                        current_interface = None
+                        radio_data = {}
+                        interfaces = []
+
+                        for line in output.splitlines():
+                            line = line.strip()
+
+                            if line.startswith("Interface"):
+                                if radio_data:
+                                    interfaces.append(radio_data)
+
+                                radio_data = {}
+                                current_interface = line.split()[1]
+                                radio_data["interface"] = current_interface
+
+                            elif current_interface:
+                                if line.startswith("addr"):
+                                    radio_data["mac"] = line.split()[1]
+
+                                elif line.startswith("ssid"):
+                                    radio_data["ssid"] = line.split(" ", 1)[1]
+
+                                elif line.startswith("channel"):
+                                    parts = line.split(',')
+                                    ch_part = parts[0].split()
+
+                                    radio_data["channel"] = ch_part[1]
+
+                                    for p in parts:
+                                        if "width" in p:
+                                            radio_data["bandwidth"] = p.split(":")[1].strip()
+
+                                elif line.startswith("txpower"):
+                                    val = line.split()[1]
+                                    radio_data["txpower"] = val.split('.')[0]
+
+                                elif line.startswith("ifindex"):
+                                    radio_data["ifindex"] = line.split()[1]
+
+                        # append last
+                        if radio_data:
+                            interfaces.append(radio_data)
+
+                        # -------------------------------
+                        # SELECT CORRECT INTERFACE
+                        # -------------------------------
+                        selected = None
+
+                        for iface in interfaces:
+                            # must have ssid + txpower (real AP interface)
+                            if "ssid" in iface and "txpower" in iface:
+
+                                if ('2g' in args.band or '24g' in args.band) and str(iface.get("channel")) == str(args.channel):
+                                    selected = iface
+                                    break
+
+                                elif '5g' in args.band and str(iface.get("channel")) ==  str(args.channel):
+                                    selected = iface
+                                    break
+
+                        # -------------------------------
+                        # ASSIGN VALUES
+                        # -------------------------------
+                        if selected:
+                            cc_mac = selected.get("mac", "N/A")
+                            cc_ch = selected.get("channel", "N/A")
+                            cc_power = tx
+                            logg.info("fixed issue cc_power:-" + str(cc_power))
+                            cc_power_ = selected.get("txpower", "N/A")
+                            cc_dbm = cc_power_
+                            ch_count = selected.get("ifindex", "N/A")
+                            cc_bw = selected.get("bandwidth", "N/A")
+
+                        if selected and "txpower" in selected:
+                            ap_dbm = float(selected["txpower"])
+                        else:
+                            ap_dbm = None
+                        ap_power = "{pw} of {pw_levels}".format(pw=int(ap_dbm),
+                                                                pw_levels=1)
+                        logg.info("selected interface for validation: {}".format(selected))
+
+                    # the mtk7921 needs to have the radio channel set and not be auto
+                    if args.mtk7921k:
+                        if args.band == '6g' or args.band == 'dual_band_6g':
+                            lf_chan = str(int(ch) + 190)
+                        else:
+                            lf_chan = ch
+
+                        logger.debug(
+                            "mtk7921 after tx_power change setting the radio {radio} band {band} channel {chan} lanforge {lf_chan}".
+                            format(radio=args.radio, band=args.band, chan=ch, lf_chan=lf_chan))
+                        try:
+                            modify_radio = lf_modify_radio.lf_modify_radio(lf_mgr=args.lfmgr,
+                                                                           lf_port=args.lfport,
+                                                                           lf_user=args.lfuser,
+                                                                           lf_passwd=args.lfpasswd,
+                                                                           debug=args.debug
+                                                                           )
+                            shelf, resource, radio, *nil = LFUtils.name_to_eid(args.radio)
+                            modify_radio.set_wifi_radio(_resource=resource,
+                                                        _radio=radio,
+                                                        _shelf=shelf,
+                                                        _channel=lf_chan)
+                        except Exception as x:
+                            traceback.print_exception(Exception, x, x.__traceback__, chain=True)
+                            logger.warning("mtk7921 after tx_power change failed to set channel {chan}".format(chan=ch))
+
                     # Up station
-                    subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                    "--set_ifstate", "up"])
+                    subprocess.run(
+                        ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
+                         "--set_ifstate", "up"], cwd=BASE_DIR)
+
+                    # for mt7921k the beacon needs to be configured
 
                     i = 0
                     wait_ip_print = False
@@ -1868,14 +2418,17 @@ def main():
                     # disable the AP for 6g and enable
                     # if args.ap_admin_down_up_6g is True and (args.band == '6g' or args.band == 'dual_band_6g'):
                     # TODO this is needed after an upgrade
-                    cs.ap_name_shutdown()
-                    sleep(5)
-                    cs.ap_name_no_shutdown()
+                    if cs:
+                        cs.ap_name_shutdown()
+                        sleep(5)
+                        cs.ap_name_no_shutdown()
 
                     # Wait untill LANforge station connects
                     while True:
-                        port_stats = subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                                     "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate"], capture_output=True, check=True)
+                        port_stats = subprocess.run(
+                            ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
+                             "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate"],
+                            capture_output=True, check=True, cwd=BASE_DIR)
                         pss = port_stats.stdout.decode('utf-8', 'ignore')
 
                         _status = None
@@ -1889,12 +2442,47 @@ def main():
                             if (m is not None):
                                 _ip = m.group(1)
 
-                        if (i % 3) == 0 :
+                        if (i % 3) == 0:
                             logg.info("IP %s  Status %s" % (_ip, _status))
 
                         if (_status == "Authorized"):
                             if ((_ip is not None) and (_ip != "0.0.0.0")):
                                 logg.info("Station is associated with IP address.")
+                                # mtk7921k work around for beacom
+                                if args.mtk7921k_beacon:
+                                    try:
+                                        # creating shh client object we use this object to connect to router
+                                        ssh = paramiko.SSHClient()
+                                        # automatically adds the missing host key
+                                        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                                        lf_mgr_ssh_port = "22"
+                                        ssh.connect(hostname=args.lfmgr, port=lf_mgr_ssh_port, username=args.lfuser,
+                                                    password=args.lfpasswd,
+                                                    allow_agent=False, look_for_keys=False, banner_timeout=600)
+
+                                        # Enable beachon rssi debug logs once per boot
+                                        # echo1 > /sys/module/mac80211/parameters/debug_beacon_rssi
+                                        # then 'journalctl -f' or dmesg should show deabon info
+
+                                        # command = 'echo lanforge | sudo echo 0 > /debug/ieee80211/{radio}/mt76/runtime-pm'.format(radio=args.radio)
+                                        # may have to do sudo -s , the cd ~root to execute the command
+                                        # per Iain
+                                        command = "echo lanforge | sudo bash -c 'echo 0 > /debug/ieee80211/{radio}/mt76/runtime-pm'".format(
+                                            radio=args.radio)
+                                        stdin, stdout, stderr = ssh.exec_command(command)
+                                        beacon_info = stdout.readlines()
+                                        logger.debug("beacon cmd info {info}".format(info=beacon_info))
+                                        logger.debug("beacon cmd stdin {stdin}".format(stdin=stdin))
+                                        logger.debug("beacon cmd stdout {stdout}".format(stdout=stdout))
+                                        logger.debug("beacon cmd stderr {stderr}".format(stderr=stderr))
+                                        ssh.close()
+
+                                    except Exception as x:
+                                        traceback.print_exception(Exception, x, x.__traceback__, chain=True)
+                                        logger.warning("mtk7921 beacon correction failed")
+
+                                    time.sleep(1)
+
                                 break
                             else:
                                 if (not wait_ip_print):
@@ -1907,7 +2495,7 @@ def main():
 
                         i += 1
                         # We wait a fairly long time since AP will take a long time to start on a CAC channel.
-                        if (i > int(args.wait_time)):  
+                        if (i > int(args.wait_time)):
                             err = "ERROR:  Station did not connect within 180 seconds."
                             logg.info(err)
                             e_tot += err
@@ -1937,7 +2525,7 @@ def main():
                             pss = cs.show_ap_dot11_6gz_summary()
                             logg.info(pss)
                             pss = cs.show_ap_bssid_6ghz()
-                            logg.info(pss)                                
+                            logg.info(pss)
                         elif args.band == '5g':
                             pss = cs.show_ap_dot11_5gz_summary()
                             logg.info(pss)
@@ -1949,45 +2537,53 @@ def main():
                             pss = cs.show_ap_bssid_24ghz()
                             logg.info(pss)
 
-
                     # Start traffic
                     # subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                    #                 "--cmd", "set_cx_state all c-udp-power RUNNING"], capture_output=True, check=False)   
-                    # 
+                    #                 "--cmd", "set_cx_state all c-udp-power RUNNING"], capture_output=True, check=False)
+                    #
                     logg.info("Start Running traffic cx")
-                    
+
                     command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                                     "--cmd", "set_cx_state all c-udp-power RUNNING"]
+                               "--cmd", "set_cx_state all c-udp-power RUNNING"]
 
                     logg.info("command: {command}".format(command=command))
 
                     summary_output = ''
-                    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE,
+                                               stderr=subprocess.STDOUT, cwd=BASE_DIR)
                     for line in iter(summary.stdout.readline, ''):
                         logger.debug(line)
                         summary_output += line
                     summary.wait()
-                    logger.info(summary_output)  
+                    logger.info(summary_output)
 
                     # Wait configured number of seconds more seconds
-                    logg.info("Waiting {} seconds to let traffic run for a bit, Channel {} NSS {} BW {} TX-Power {}".format(args.duration, ch, n, bw, tx))
+                    logg.info(
+                        "Waiting {} seconds to let traffic run for a bit, Channel {} NSS {} BW {} TX-Power {}".format(
+                            args.duration, ch, n, bw, tx))
                     time.sleep(int(args.duration))
 
                     # gather information from ap
-                    if(bool(ap_dict)):
+                    if (bool(ap_dict)):
                         logg.info("ap_dict {}".format(ap_dict))
-                        logg.info("Read AP ap_scheme: {} ap_ip: {} ap_port: {} ap_user: {} ap_pw: {}".format(ap_dict['ap_scheme'], ap_dict['ap_ip'], ap_dict["ap_port"],
-                                                                                                             ap_dict['ap_user'], ap_dict['ap_pw']))
-                        logg.info("####################################################################################################")
+                        logg.info("Read AP ap_scheme: {} ap_ip: {} ap_port: {} ap_user: {} ap_pw: {}".format(
+                            ap_dict['ap_scheme'], ap_dict['ap_ip'], ap_dict["ap_port"],
+                            ap_dict['ap_user'], ap_dict['ap_pw']))
+                        logg.info(
+                            "####################################################################################################")
                         logg.info("# READ AP POWERREG")
-                        logg.info("####################################################################################################")
+                        logg.info(
+                            "####################################################################################################")
                         summary_output = ''
                         try:
                             logg.info("ap_ctl.py: read AP power information")
                             # TODO use ap module
-                            command = ["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt", ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port", ap_dict["ap_port"],
-                                                      "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action", "powerreg"]
-                            summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                            command = ["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt",
+                                       ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port", ap_dict["ap_port"],
+                                       "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action",
+                                       "powerreg"]
+                            summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE,
+                                                       stderr=subprocess.STDOUT, cwd=BASE_DIR)
                             for line in iter(summary.stdout.readline, ''):
                                 logger.info(line)
                                 if len(line) > 4:
@@ -1996,18 +2592,21 @@ def main():
                             logger.info(summary_output)  # .decode('utf-8', 'ignore'))
 
                         except subprocess.CalledProcessError as process_error:
-                            logg.info("####################################################################################################")
+                            logg.info(
+                                "####################################################################################################")
                             logg.info("# CHECK IF AP HAS TELNET CONNECTION ALREADY ACTIVE")
-                            logg.info("####################################################################################################")
-                            logg.info("####################################################################################################")
+                            logg.info(
+                                "####################################################################################################")
+                            logg.info(
+                                "####################################################################################################")
                             logg.info(
                                 "# Unable to commicate to AP error code: {} output {}".format(
                                     process_error.returncode, process_error.output))
-                            logg.info("####################################################################################################")
+                            logg.info(
+                                "####################################################################################################")
                             summary = "empty_process_error"
                             summary_output = summary
 
-                        
                         ap_ant_gain = ''
                         ap_legal_ant_gain = ''
                         ap_total_power = ''
@@ -2018,15 +2617,15 @@ def main():
                         print(summary_output_split)
                         for line in summary_output.splitlines():
                             if 'Configured Antenna Gain(dBi):' in line:
-                                pat = "Configured Antenna Gain\\(dBi\\)\\:\\s+(\\d+)"  
+                                pat = "Configured Antenna Gain\\(dBi\\)\\:\\s+(\\d+)"
                                 match = re.search(pat, line)
-                                if match is not None :
+                                if match is not None:
                                     ap_ant_gain = match.group(1)
                                     logger.info("AP antenna gain: {gain}".format(gain=ap_ant_gain))
                             if 'Legal Antenna Gain in use(dBi):' in line:
                                 pat = "Legal Antenna Gain in use\\(dBi\\):\\s+(\\S+)"
                                 match = re.search(pat, line)
-                                if match is not None :
+                                if match is not None:
                                     ap_legal_ant_gain = match.group(1)
                                     logger.info("AP Legal antenna gain: {gain}".format(gain=ap_legal_ant_gain))
                             # /Allowed total powers\S+\Sn(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)
@@ -2042,7 +2641,7 @@ def main():
                                         pat = "(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
                                     else:
                                         pat = "(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
-                                else:                                        
+                                else:
                                     pat = "(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
 
                                 match = re.search(pat, line)
@@ -2065,13 +2664,13 @@ def main():
                                     else:
                                         # pat = "Allowed per-path powers\\S+\\Sn(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
                                         pat = "(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
-                                else:                                        
+                                else:
                                     pat = "(\\d+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)\\s+(\\S+)"
 
                                 match = re.search(pat, line)
                                 if match is not None:
                                     ap_per_path_power = match.group(int(tx))
-                                    
+
                         logg.info("ap_ant_gain: {ap_ant_gain}".format(ap_ant_gain=ap_ant_gain))
                         logg.info("ap_legal_ant_gain: {ap_legal_ant_gain}".format(ap_legal_ant_gain=ap_legal_ant_gain))
                         logg.info("ap_total_power: {ap_total_power}".format(ap_total_power=ap_total_power))
@@ -2087,8 +2686,10 @@ def main():
                     ants = []
                     while True:
                         time.sleep(1)
-                        port_stats = subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                                     "--cli_cmd", "probe_port 1 %s %s" % (lfresource, lfstation)], capture_output=True, check=True)
+                        port_stats = subprocess.run(
+                            ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
+                             "--cli_cmd", "probe_port 1 %s %s" % (lfresource, lfstation)], capture_output=True,
+                            check=True, cwd=BASE_DIR)
                         pss = port_stats.stdout.decode('utf-8', 'ignore')
                         # for debug: print the output of lf_portmod.pl and the command used
                         logg.debug("######## lf_portmod ######### ")
@@ -2096,8 +2697,10 @@ def main():
                         logg.debug("######## lf_portmod  END ######### ")
 
                         if (args.show_lf_portmod):
-                            logg.info("./lf_portmod.pl --manager {} --card {} --port_name {} --cli_cmd probe_port 1 {} {}".format(lfmgr,
-                                                                                                                                  lfresource, lfstation, lfresource, lfstation))
+                            logg.info(
+                                "./lf_portmod.pl --manager {} --card {} --port_name {} --cli_cmd probe_port 1 {} {}".format(
+                                    lfmgr,
+                                    lfresource, lfstation, lfresource, lfstation))
                             logg.info(pss)
 
                         foundit = False
@@ -2125,7 +2728,9 @@ def main():
                                 if (len(ants) == int(n)):
                                     foundit = True
                                 else:
-                                    logg.info("Looking for %s spatial streams, signal avg reported fewer: %s" % (n, m.group(1)))
+                                    logg.info("Looking for %s spatial streams, signal avg reported fewer: %s" % (n,
+                                                                                                                 m.group(
+                                                                                                                     1)))
                             m = re.search('beacon signal avg:\\s+(\\S+)\\s+dBm', line)
                             if (m is not None):
                                 logg.info("search: beacon signal avg: resulted in m = {}".format(m))
@@ -2145,10 +2750,9 @@ def main():
                                 ants.append("")
                             break
 
-                    endp_stats = subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--endp_vals", "rx_bps",
-                                                 "--cx_name", "c-udp-power"], capture_output=True, check=True)
-
-                                                 
+                    endp_stats = subprocess.run(
+                        ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--endp_vals", "rx_bps",
+                         "--cx_name", "c-udp-power"], capture_output=True, cwd=BASE_DIR, check=True)
 
                     pss = endp_stats.stdout.decode('utf-8', 'ignore')
                     logg.info(pss)
@@ -2170,18 +2774,18 @@ def main():
                     #                "--cmd", "set_cx_state all c-udp-power STOPPED"], capture_output=True, check=True)
 
                     command = ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                                     "--cmd", "set_cx_state all c-udp-power STOPPED"]
+                               "--cmd", "set_cx_state all c-udp-power STOPPED"]
 
                     logg.info("command: {command}".format(command=command))
 
                     summary_output = ''
-                    summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE,
+                                               stderr=subprocess.STDOUT)
                     for line in iter(summary.stdout.readline, ''):
                         logger.debug(line)
                         summary_output += line
                     summary.wait()
-                    logger.info(summary_output)  
-
+                    logger.info(summary_output)
 
                     antstr = ""
                     for x in range(4):
@@ -2193,10 +2797,29 @@ def main():
                         antstr += "\t"
 
                     logg.info("antenna dBm {antstr}".format(antstr=antstr))
-                    port_stats = subprocess.run(["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                                                 "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate"], capture_output=True, check=True)
+                    port_stats = subprocess.run(
+                        ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
+                         "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate"],
+                        capture_output=True, cwd=BASE_DIR, check=True)
                     pss = port_stats.stdout.decode('utf-8', 'ignore')
                     logg.info(pss)
+                    client_info = {}
+                    client_info["station"] = lfstation
+
+                    for line_ in pss.splitlines():
+                        if ":" not in line_:
+                            continue
+
+                        key, value = line_.split(":", 1)
+                        client_info[key.strip()] = value.strip()
+
+                    # add tx power + station name
+
+                    #client_info["station"] = lfstation  # already in your code
+
+                    client_info_list.append(client_info)
+
+                    logg.info(f"Client snapshot: {client_info}")
 
                     _ap = None
                     _bw = None
@@ -2281,21 +2904,29 @@ def main():
                     calc_ant1 = 0
                     if (ants[0] != ""):
                         calc_ant1 = int(ants[0]) + pi + rssi_adj + ag
-                        logg.info("calc_ant1: {} = ants[0]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant1, ants[0], pi, rssi_adj, ag))
+                        logg.info(
+                            "calc_ant1: {} = ants[0]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant1, ants[0],
+                                                                                                  pi, rssi_adj, ag))
                     calc_ant2 = 0
                     calc_ant3 = 0
                     calc_ant4 = 0
                     if (len(ants) > 1 and ants[1] != ""):
                         calc_ant2 = int(ants[1]) + pi + rssi_adj + ag
-                        logg.info("calc_ant2: {} = ants[1]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant2, ants[1], pi, rssi_adj, ag))
+                        logg.info(
+                            "calc_ant2: {} = ants[1]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant2, ants[1],
+                                                                                                  pi, rssi_adj, ag))
 
                     if (len(ants) > 2 and ants[2] != ""):
                         calc_ant3 = int(ants[2]) + pi + rssi_adj + ag
-                        logg.info("calc_ant3: {} = ants[2]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant3, ants[2], pi, rssi_adj, ag))
+                        logg.info(
+                            "calc_ant3: {} = ants[2]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant3, ants[2],
+                                                                                                  pi, rssi_adj, ag))
 
                     if (len(ants) > 3 and ants[3] != ""):
                         calc_ant4 = int(ants[3]) + pi + rssi_adj + ag
-                        logg.info("calc_ant4: {} = ants[3]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant4, ants[3], pi, rssi_adj, ag))
+                        logg.info(
+                            "calc_ant4: {} = ants[3]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant4, ants[3],
+                                                                                                  pi, rssi_adj, ag))
 
                     diff_a1 = ""
                     diff_a2 = ""
@@ -2304,21 +2935,27 @@ def main():
 
                     pfs = "PASS"
                     pfrange = pf_dbm
-
+                    print(2495)
+                    print(cc_dbm)
+                    if cs:
+                        print(cs)
+                        print(dir(cs))
                     if (cc_dbm == ""):
                         cc_dbmi = 0
                     else:
                         cc_dbmi = int(cc_dbm)
                     diff_dbm = calc_dbm - cc_dbmi
-                    if(int(abs(diff_dbm)) > pfrange):
+                    if (int(abs(diff_dbm)) > pfrange):
                         w_tot = "Info: Controller dBm and Calculated dBm power different by greater than +/- {} dBm".format(
                             args.pf_dbm)  # pass / fail dbm
 
                     logg.info("diff_dbm {} calc_dbm {} - cc_dbmi {}".format(diff_dbm, calc_dbm, cc_dbmi))
                     diff_dbm_beacon = calc_dbm_beacon - cc_dbmi
-                    logg.info("diff_dbm_beacon {} calc_dbm_beacon {} - cc_dbmi {}".format(diff_dbm_beacon, calc_dbm_beacon, cc_dbmi))
+                    logg.info(
+                        "diff_dbm_beacon {} calc_dbm_beacon {} - cc_dbmi {}".format(diff_dbm_beacon, calc_dbm_beacon,
+                                                                                    cc_dbmi))
 
-                    if(int(abs(diff_dbm_beacon)) > int(args.beacon_dbm_diff)):
+                    if (int(abs(diff_dbm_beacon)) > int(args.beacon_dbm_diff)):
                         w_tot = "INFO: Controller dBm and Calculated dBm Beacon power different by greater than +/- {} dBm".format(
                             args.beacon_dbm_diff)
 
@@ -2328,15 +2965,22 @@ def main():
                     # NSS tranmission will mean that each chain should be decreased so that sum total
                     # of all chains is equal to the maximum allowed txpower.
                     allowed_per_path = cc_dbmi
-                    logg.info("combined_power read from Controller: {}  = cc_dbmi: {}".format(allowed_per_path, cc_dbmi))
+                    logg.info(
+                        "combined_power read from Controller: {}  = cc_dbmi: {}".format(allowed_per_path, cc_dbmi))
                     if (int(_nss) == 1):
 
                         if args.nss_4x4_override:
                             allowed_per_path = cc_dbmi - 6
-                            logg.info("allowed_per_path: {}  = cc_dbmi: {} - 6 nss_4x4_override True".format(allowed_per_path, cc_dbmi))
-                            logg.info("(Offset 1) diff_a1 (): {} = calc_ant1: {} - allowed_per_path: {} nss_4x4_override True".format(diff_a1, calc_ant1, allowed_per_path))
+                            logg.info(
+                                "allowed_per_path: {}  = cc_dbmi: {} - 6 nss_4x4_override True".format(allowed_per_path,
+                                                                                                       cc_dbmi))
+                            logg.info(
+                                "(Offset 1) diff_a1 (): {} = calc_ant1: {} - allowed_per_path: {} nss_4x4_override True".format(
+                                    diff_a1, calc_ant1, allowed_per_path))
                         diff_a1 = calc_ant1 - cc_dbmi
-                        logg.info("(Offset 1) diff_a1 (): {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1, allowed_per_path))
+                        logg.info("(Offset 1) diff_a1 (): {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1,
+                                                                                                            calc_ant1,
+                                                                                                            allowed_per_path))
 
                         # if args.per_ss:
                         if (abs(diff_a1) > pfrange):
@@ -2345,16 +2989,22 @@ def main():
                         # NSS of 2 means each chain should transmit at 1/2 total power, thus the '- 3'
                         if args.nss_4x4_override:
                             allowed_per_path = cc_dbmi - 6
-                            logg.info("allowed_per_path: {}  = cc_dbmi: {} - 6 nss_4x4_override True".format(allowed_per_path, cc_dbmi))
+                            logg.info(
+                                "allowed_per_path: {}  = cc_dbmi: {} - 6 nss_4x4_override True".format(allowed_per_path,
+                                                                                                       cc_dbmi))
                         else:
                             allowed_per_path = cc_dbmi - 3
                             logg.info("allowed_per_path: {}  = cc_dbmi: {} - 3".format(allowed_per_path, cc_dbmi))
 
                         diff_a1 = calc_ant1 - allowed_per_path
-                        logg.info("(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1, allowed_per_path))
+                        logg.info(
+                            "(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1,
+                                                                                                   allowed_per_path))
 
                         diff_a2 = calc_ant2 - allowed_per_path
-                        logg.info("(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2, allowed_per_path))
+                        logg.info(
+                            "(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2,
+                                                                                                   allowed_per_path))
                         # if args.per_ss:
                         if ((abs(diff_a1) > pfrange) or (abs(diff_a2) > pfrange)):
                             pf = 0
@@ -2364,18 +3014,24 @@ def main():
                         logg.info("allowed_per_path: {}  = cc_dbmi: {} - 5".format(allowed_per_path, cc_dbmi))
 
                         diff_a1 = calc_ant1 - allowed_per_path
-                        logg.info("(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1, allowed_per_path))
+                        logg.info(
+                            "(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1,
+                                                                                                   allowed_per_path))
 
                         diff_a2 = calc_ant2 - allowed_per_path
-                        logg.info("(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2, allowed_per_path))
+                        logg.info(
+                            "(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2,
+                                                                                                   allowed_per_path))
 
                         diff_a3 = calc_ant3 - allowed_per_path
-                        logg.info("(Offset 3) diff_a3: {} = calc_ant3: {} - allowed_per_path: {}".format(diff_a3, calc_ant3, allowed_per_path))
+                        logg.info(
+                            "(Offset 3) diff_a3: {} = calc_ant3: {} - allowed_per_path: {}".format(diff_a3, calc_ant3,
+                                                                                                   allowed_per_path))
 
                         # if args.per_ss:
                         if ((abs(diff_a1) > pfrange) or
-                            (abs(diff_a2) > pfrange) or
-                            (abs(diff_a3) > pfrange)):
+                                (abs(diff_a2) > pfrange) or
+                                (abs(diff_a3) > pfrange)):
                             pf = 0
                     if (int(_nss) == 4):
                         # NSS of 4 means each chain should transmit at 1/4 total power, thus the '- 6'
@@ -2383,16 +3039,24 @@ def main():
                         logg.info("allowed_per_path: {}  = cc_dbmi: {} - 6".format(allowed_per_path, cc_dbmi))
 
                         diff_a1 = calc_ant1 - allowed_per_path
-                        logg.info("(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1, allowed_per_path))
+                        logg.info(
+                            "(Offset 1) diff_a1: {} = calc_ant1: {} - allowed_per_path: {}".format(diff_a1, calc_ant1,
+                                                                                                   allowed_per_path))
 
                         diff_a2 = calc_ant2 - allowed_per_path
-                        logg.info("(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2, allowed_per_path))
+                        logg.info(
+                            "(Offset 2) diff_a2: {} = calc_ant2: {} - allowed_per_path: {}".format(diff_a2, calc_ant2,
+                                                                                                   allowed_per_path))
 
                         diff_a3 = calc_ant3 - allowed_per_path
-                        logg.info("(Offset 3) diff_a3: {} = calc_ant3: {} - allowed_per_path: {}".format(diff_a3, calc_ant3, allowed_per_path))
+                        logg.info(
+                            "(Offset 3) diff_a3: {} = calc_ant3: {} - allowed_per_path: {}".format(diff_a3, calc_ant3,
+                                                                                                   allowed_per_path))
 
                         diff_a4 = calc_ant4 - allowed_per_path
-                        logg.info("(Offset 4) diff_a4: {} = calc_ant4: {} - allowed_per_path: {}".format(diff_a4, calc_ant4, allowed_per_path))
+                        logg.info(
+                            "(Offset 4) diff_a4: {} = calc_ant4: {} - allowed_per_path: {}".format(diff_a4, calc_ant4,
+                                                                                                   allowed_per_path))
 
                         # Read AP to determine if there are less chains or spatial steams then expected
                         # Thus provide a passing result
@@ -2431,21 +3095,28 @@ def main():
                         DAA_Pwr = None
                         DAA_N_TX = None
                         DAA_Total_pwr = None
-                        if(bool(ap_dict)  and args.nss_4x4_ap_adjust):
+                        if (bool(ap_dict) and args.nss_4x4_ap_adjust):
                             logg.info("ap_dict {}".format(ap_dict))
-                            logg.info("Read AP ap_scheme: {} ap_ip: {} ap_port: {} ap_user: {} ap_pw: {}".format(ap_dict['ap_scheme'], ap_dict['ap_ip'], ap_dict["ap_port"],
-                                                                                                                 ap_dict['ap_user'], ap_dict['ap_pw']))
-                            logg.info("####################################################################################################")
+                            logg.info("Read AP ap_scheme: {} ap_ip: {} ap_port: {} ap_user: {} ap_pw: {}".format(
+                                ap_dict['ap_scheme'], ap_dict['ap_ip'], ap_dict["ap_port"],
+                                ap_dict['ap_user'], ap_dict['ap_pw']))
+                            logg.info(
+                                "####################################################################################################")
                             logg.info("# READ AP POWERCFG")
-                            logg.info("####################################################################################################")
+                            logg.info(
+                                "####################################################################################################")
 
                             try:
                                 logg.info("ap_ctl.py: read AP power information")
                                 # TODO use ap module
                                 summary_output = ''
-                                command = ["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt", ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port", ap_dict["ap_port"],
-                                                          "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action", "powercfg"]
-                                summary = subprocess.Popen(command, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                                command = ["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt",
+                                           ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port",
+                                           ap_dict["ap_port"],
+                                           "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action",
+                                           "powercfg"]
+                                summary = subprocess.Popen(command, cwd=BASE_DIR, universal_newlines=True, stdout=subprocess.PIPE,
+                                                           stderr=subprocess.STDOUT)
                                 for line in iter(summary.stdout.readline, ''):
                                     logger.debug(line)
                                     if line:
@@ -2453,27 +3124,31 @@ def main():
                                     # sys.stdout.flush() # please see comments regarding the necessity of this line
                                 summary.wait()
                                 logger.info(summary_output)  # .decode('utf-8', 'ignore'))
-# 
-                                # ap_info = subprocess.run(["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt", ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port", ap_dict["ap_port"],
-                                #                          "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action", "powercfg"], stdout=subprocess.PIPE)
-                                # try:
-                                #     pss = ap_info.stdout.decode('utf-8', 'ignore')
-                                #     logg.info(pss)
-                                # except BaseException:
-                                #     logg.info("ap_info was of type NoneType will set pss empty")
-                                #     pss = "empty"
+                            #
+                            # ap_info = subprocess.run(["./ap_ctl.py", "--scheme", ap_dict['ap_scheme'], "--prompt", ap_dict['ap_prompt'], "--dest", ap_dict['ap_ip'], "--port", ap_dict["ap_port"],
+                            #                          "--user", ap_dict['ap_user'], "--passwd", ap_dict['ap_pw'], "--action", "powercfg"], stdout=subprocess.PIPE)
+                            # try:
+                            #     pss = ap_info.stdout.decode('utf-8', 'ignore')
+                            #     logg.info(pss)
+                            # except BaseException:
+                            #     logg.info("ap_info was of type NoneType will set pss empty")
+                            #     pss = "empty"
 
                             # TODO print out the call stack
                             except subprocess.CalledProcessError as process_error:
-                                logg.info("####################################################################################################")
+                                logg.info(
+                                    "####################################################################################################")
                                 logg.info("# CHECK IF AP HAS TELNET CONNECTION ALREADY ACTIVE")
-                                logg.info("####################################################################################################")
+                                logg.info(
+                                    "####################################################################################################")
 
-                                logg.info("####################################################################################################")
+                                logg.info(
+                                    "####################################################################################################")
                                 logg.info(
                                     "# Unable to commicate to AP error code: {} output {}".format(
                                         process_error.returncode, process_error.output))
-                                logg.info("####################################################################################################")
+                                logg.info(
+                                    "####################################################################################################")
                                 summary = "empty_process_error"
 
                             logg.info(summary_output)
@@ -2524,43 +3199,59 @@ def main():
                         # range check and reading the data from the AP may be used in conjunction thus it is coded to be non-exclusive
                         logg.info("failed_low: {} failed_low_threshold: {}".format(failed_low, failed_low_threshold))
                         if bool(ap_dict) and failed_low > failed_low_threshold:
-                            logg.info("failed_low: {} > failed_low_threshold: {}".format(failed_low, failed_low_threshold))
+                            logg.info(
+                                "failed_low: {} > failed_low_threshold: {}".format(failed_low, failed_low_threshold))
                             pf = 0
 
-
                         # this allows for a larger offset for specific spatial streams
-                        if(pf_ignore_offset != 0):
+                        if (pf_ignore_offset != 0):
                             logg.info(
                                 "diff_a1: {} diff_a2: {} diff_a3: {} diff_a4: {} pfrange: {} pf_ignore_offset: {}".format(
                                     diff_a1, diff_a2, diff_a3, diff_a4, pfrange, pf_ignore_offset))
                             if (abs(diff_a1) > pfrange):
-                                if(abs(diff_a1) < (pfrange + pf_ignore_offset)):
-                                    logg.info("abs(diff_a1): {} > (pfrange: {} + pf_ignore_offset: {})".format(abs(diff_a1), pfrange, pf_ignore_offset))
-                                    i_tot += "PASSED abs(diff_a1)({}) > pfrange({}) + pf_ignore_offset({})  ".format(abs(diff_a1), pfrange, pf_ignore_offset)
+                                if (abs(diff_a1) < (pfrange + pf_ignore_offset)):
+                                    logg.info(
+                                        "abs(diff_a1): {} > (pfrange: {} + pf_ignore_offset: {})".format(abs(diff_a1),
+                                                                                                         pfrange,
+                                                                                                         pf_ignore_offset))
+                                    i_tot += "PASSED abs(diff_a1)({}) > pfrange({}) + pf_ignore_offset({})  ".format(
+                                        abs(diff_a1), pfrange, pf_ignore_offset)
                                     logg.info("i_tot {}".format(i_tot))
                                 else:
                                     logg.info("abs(diff_a1): {} failure".format(abs(diff_a1)))
                                     pf = 0
                             if (abs(diff_a2) > pfrange):
-                                if(abs(diff_a2) < (pfrange + pf_ignore_offset)):
-                                    logg.info("abs(diff_a2): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a2), pfrange, pf_ignore_offset))
-                                    i_tot += "PASSED abs(diff_a2)({}) > pfrange({}) + pf_ignore_offset({})  ".format(abs(diff_a2), pfrange, pf_ignore_offset)
+                                if (abs(diff_a2) < (pfrange + pf_ignore_offset)):
+                                    logg.info(
+                                        "abs(diff_a2): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a2),
+                                                                                                       pfrange,
+                                                                                                       pf_ignore_offset))
+                                    i_tot += "PASSED abs(diff_a2)({}) > pfrange({}) + pf_ignore_offset({})  ".format(
+                                        abs(diff_a2), pfrange, pf_ignore_offset)
                                     logg.info("i_tot {}".format(i_tot))
                                 else:
                                     logg.info("abs(diff_a2): {} failure".format(abs(diff_a2)))
                                     pf = 0
                             if (abs(diff_a3) > pfrange):
-                                if(abs(diff_a3) < (pfrange + pf_ignore_offset)):
-                                    logg.info("abs(diff_a3): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a3), pfrange, pf_ignore_offset))
-                                    i_tot += "PASSED abs(diff_a3)({}) > pfrange({}) + pf_ignore_offset({})  ".format(abs(diff_a3), pfrange, pf_ignore_offset)
+                                if (abs(diff_a3) < (pfrange + pf_ignore_offset)):
+                                    logg.info(
+                                        "abs(diff_a3): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a3),
+                                                                                                       pfrange,
+                                                                                                       pf_ignore_offset))
+                                    i_tot += "PASSED abs(diff_a3)({}) > pfrange({}) + pf_ignore_offset({})  ".format(
+                                        abs(diff_a3), pfrange, pf_ignore_offset)
                                     logg.info("i_tot {}".format(i_tot))
                                 else:
                                     logg.info("abs(diff_a3): {} failure".format(abs(diff_a3)))
                                     pf = 0
                             if (abs(diff_a4) > pfrange):
-                                if(abs(diff_a4) < (pfrange + pf_ignore_offset)):
-                                    logg.info("abs(diff_a4): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a4), pfrange, pf_ignore_offset))
-                                    i_tot += "PASSED abs(diff_a4)({}) > pfrange({}) + pf_ignore_offset({})  ".format(abs(diff_a4), pfrange, pf_ignore_offset)
+                                if (abs(diff_a4) < (pfrange + pf_ignore_offset)):
+                                    logg.info(
+                                        "abs(diff_a4): {} > pfrange: {} + pf_ignore_offset: {}".format(abs(diff_a4),
+                                                                                                       pfrange,
+                                                                                                       pf_ignore_offset))
+                                    i_tot += "PASSED abs(diff_a4)({}) > pfrange({}) + pf_ignore_offset({})  ".format(
+                                        abs(diff_a4), pfrange, pf_ignore_offset)
                                     logg.info("i_tot {}".format(i_tot))
                                 else:
                                     logg.info("abs(diff_a4): {} failure".format(abs(diff_a4)))
@@ -2581,7 +3272,8 @@ def main():
                                 logg.info("abs(diff_a4): {} > (pfrange: {})".format(abs(diff_a4), pfrange))
                                 pf = 0
 
-                    logg.info("_nss {}  allowed_per_path (AP should be transmitting at) {}".format(_nss, allowed_per_path))
+                    logg.info(
+                        "_nss {}  allowed_per_path (AP should be transmitting at) {}".format(_nss, allowed_per_path))
 
                     if (pf == 0 or e_tot != ""):
                         pfs = "FAIL"
@@ -2593,23 +3285,27 @@ def main():
                     minutes, seconds = divmod(run_time_delta.seconds, 60)
                     hours, minutes = divmod(minutes, 60)
                     run_duration = "{day}d {hours}h {minutes}m {seconds}s {msec} ms".format(
-                        day=run_time_delta.days, hours=hours, minutes=minutes, seconds=seconds, msec=run_time_delta.microseconds)
+                        day=run_time_delta.days, hours=hours, minutes=minutes, seconds=seconds,
+                        msec=run_time_delta.microseconds)
                     logger.info("Run Duration:  {run_duration}".format(run_duration=run_duration))
 
                     total_run_duration += run_time_delta
                     minutes, seconds = divmod(total_run_duration.seconds, 60)
                     hours, minutes = divmod(minutes, 60)
                     total_run_duration_str = "{day}d {hours}h {minutes}m {seconds}s {msec} ms".format(
-                        day=total_run_duration.days, hours=hours, minutes=minutes, seconds=seconds, msec=total_run_duration.microseconds)
-                    logger.info("Total Run Duration:  {total_run_duration}".format(total_run_duration=total_run_duration))
+                        day=total_run_duration.days, hours=hours, minutes=minutes, seconds=seconds,
+                        msec=total_run_duration.microseconds)
+                    logger.info(
+                        "Total Run Duration:  {total_run_duration}".format(total_run_duration=total_run_duration))
 
                     run_start_time = run_end_time
 
-                    time_stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + "{:.3f}".format(time.time() - (math.floor(time.time())))[1:]
+                    time_stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + "{:.3f}".format(
+                        time.time() - (math.floor(time.time())))[1:]
 
                     # This line writes the data to the CSV
-                    ln = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
-                        myrd, pathloss, antenna_gain, ch, n, bw, tx, beacon_sig, sig,
+                    ln = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
+                        mycc, myrd, pathloss, antenna_gain, ch, n, bw, tx, beacon_sig, sig,
                         antstr, _ap, _bw, _ch, _mode, _nss, _noise, _rxrate,
                         cc_mac, cc_ch, cc_power, cc_dbm,
                         calc_dbm, diff_dbm, calc_ant1, calc_ant2, calc_ant3, calc_ant4,
@@ -2624,12 +3320,14 @@ def main():
                     # Controller dBm
                     # worksheet.write(row, col, cc_dbmi, center_blue)
                     results_dict = kpi_csv.kpi_csv_get_dict_update_time()
-                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band, channel=cc_ch)
+                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band,
+                                                                                          channel=cc_ch)
                     results_dict['pass/fail'] = pfs
                     # TODO kpi pass fail
                     # results_dict['Subtest-Pass'] = None
                     # results_dict['Subtest-Fail'] = None
-                    results_dict['short-description'] = "CC dBm {ap} {band} {channel} {nss} {bw} {mode} {txpower}".format(
+                    results_dict[
+                        'short-description'] = "CC dBm {ap} {band} {channel} {nss} {bw} {mode} {txpower}".format(
                         ap=args.ap, band=args.band, channel=_ch, nss=_nss, bw=_bw, mode=_mode, txpower=cc_power)
                     results_dict['numeric-score'] = "{cc_dbmi}".format(cc_dbmi=cc_dbmi)
                     results_dict['Units'] = "dBm"
@@ -2638,12 +3336,14 @@ def main():
                     # Calculated beacon dBm
                     # worksheet.write(row, col, calc_dbm_beacon, center_blue)
                     results_dict = kpi_csv.kpi_csv_get_dict_update_time()
-                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band, channel=cc_ch)
+                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band,
+                                                                                          channel=cc_ch)
                     results_dict['pass/fail'] = pfs
                     # TODO kpi pass fail
                     # results_dict['Subtest-Pass'] = None
                     # results_dict['Subtest-Fail'] = None
-                    results_dict['short-description'] = "Calc dBm Beacon {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
+                    results_dict[
+                        'short-description'] = "Calc dBm Beacon {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
                         ap=args.ap, band=args.band, channel=_ch, nss=_nss, bw=_bw, mode=_mode, txpower=cc_power)
                     results_dict['numeric-score'] = "{calc_dbm_beacon}".format(calc_dbm_beacon=calc_dbm_beacon)
                     results_dict['Units'] = "dBm"
@@ -2652,12 +3352,14 @@ def main():
                     # Diff Controller dBm & Beacon dBM (+/- 7 dBm)
                     # worksheet.write(row, col, diff_dbm_beacon, center_blue)
                     results_dict = kpi_csv.kpi_csv_get_dict_update_time()
-                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band, channel=cc_ch)
+                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band,
+                                                                                          channel=cc_ch)
                     results_dict['pass/fail'] = pfs
                     # TODO kpi pass fail
                     # results_dict['Subtest-Pass'] = None
                     # results_dict['Subtest-Fail'] = None
-                    results_dict['short-description'] = "Diff CC & Beacon dBm {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
+                    results_dict[
+                        'short-description'] = "Diff CC & Beacon dBm {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
                         ap=args.ap, band=args.band, channel=_ch, nss=_nss, bw=_bw, mode=_mode, txpower=cc_power)
                     results_dict['numeric-score'] = "{diff_dbm_beacon}".format(diff_dbm_beacon=diff_dbm_beacon)
                     results_dict['Units'] = "dBm"
@@ -2666,12 +3368,14 @@ def main():
                     # Calculated dBm Combined
                     # worksheet.write(row, col, calc_dbm, center_blue)
                     results_dict = kpi_csv.kpi_csv_get_dict_update_time()
-                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band, channel=cc_ch)
+                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band,
+                                                                                          channel=cc_ch)
                     results_dict['pass/fail'] = pfs
                     # TODO kpi pass fail
                     # results_dict['Subtest-Pass'] = None
                     # results_dict['Subtest-Fail'] = None
-                    results_dict['short-description'] = "Calc dBm Combined {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
+                    results_dict[
+                        'short-description'] = "Calc dBm Combined {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
                         ap=args.ap, band=args.band, channel=_ch, nss=_nss, bw=_bw, mode=_mode, txpower=cc_power)
                     results_dict['numeric-score'] = "{calc_dbm}".format(calc_dbm=calc_dbm)
                     results_dict['Units'] = "dBm"
@@ -2680,20 +3384,22 @@ def main():
                     # Diff Controller dBm and Combined
                     # worksheet.write(row, col, diff_dbm, center_blue)
                     results_dict = kpi_csv.kpi_csv_get_dict_update_time()
-                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band, channel=cc_ch)
+                    results_dict['Graph-Group'] = "Tx Power {ap} {band} {channel}".format(ap=args.ap, band=args.band,
+                                                                                          channel=cc_ch)
                     results_dict['pass/fail'] = pfs
                     # TODO kpi pass fail
                     # results_dict['Subtest-Pass'] = None
                     # results_dict['Subtest-Fail'] = None
-                    results_dict['short-description'] = "Diff CC dBm & Combined {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
+                    results_dict[
+                        'short-description'] = "Diff CC dBm & Combined {ap} {band} ch:{channel} nss:{nss} bw:{bw} {mode} tx:{txpower}".format(
                         ap=args.ap, band=args.band, channel=_ch, nss=_nss, bw=_bw, mode=_mode, txpower=cc_power)
                     results_dict['numeric-score'] = "{diff_dbm}".format(diff_dbm=diff_dbm)
                     results_dict['Units'] = "dBm"
                     kpi_csv.kpi_csv_write_dict(results_dict)
 
                     # Start xlsx reporting - report as reported from ap summary
-                    ln = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
-                        myrd, pathloss, antenna_gain, _ch, _nss, _bw, cc_power, cc_dbm, allowed_per_path,
+                    ln = "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s" % (
+                        mycc, myrd, pathloss, antenna_gain, _ch, _nss, _bw, cc_power, cc_dbm, allowed_per_path,
                         antstr,
                         calc_ant1, calc_ant2, calc_ant3, calc_ant4,
                         diff_a1, diff_a2, diff_a3, diff_a4, pfs, time_stamp, run_duration, total_run_duration_str
@@ -2701,9 +3407,31 @@ def main():
                     csvs.write(ln)
                     csvs.write("\t")
 
+                    # Save the configurations
+                    center_blue_tmp = center_blue
+                    center_tan_tmp = center_tan
+                    center_peach_tmp = center_peach
+                    center_pink_tmp = center_pink
+                    center_yel_red_tmp = center_yel_red
+                    center_yel_tmp = center_yel
+
+                    # TODO refactor this is a quick fix to allow the fail's to be better indicated
+                    if (pfs == "FAIL") or (_bw != bw) or (_nss != n) or (e_tot != "") or (
+                            int(cc_dbm) != int(ap_dbm)) or (cc_power != ap_power):
+                        center_blue = center_red
+                        center_tan = center_red
+                        center_peach = center_red
+                        center_pink = center_red
+                        center_yel_red = center_red
+                        center_yel = center_red
+
+                    # Start report line
                     col = 0
+                    worksheet.write(row, col, mycc, center_blue)
+                    col += 1
                     worksheet.write(row, col, myrd, center_blue)
                     col += 1
+
                     worksheet.write(row, col, args.series, center_blue)
                     col += 1
                     worksheet.write(row, col, cc_ch, center_blue)
@@ -2718,33 +3446,36 @@ def main():
                     col += 1
                     worksheet.write(row, col, cc_power, center_tan)
                     col += 1
+                    worksheet.write(row, col, ap_power, center_tan)
+                    col += 1
                     worksheet.write(row, col, cc_dbm, center_tan)
-                    if(bool(ap_dict)):
+                    col += 1
+                    worksheet.write(row, col, ap_dbm, center_tan)
+                    if (bool(ap_dict)):
                         col += 1
                         worksheet.write(row, col, ap_total_power, center_tan)
                     col += 1
                     worksheet.write(row, col, allowed_per_path, center_tan)
-                    if(bool(ap_dict)):
+                    if (bool(ap_dict)):
                         col += 1
                         worksheet.write(row, col, ap_per_path_power, center_tan)
-
                     col += 1
                     worksheet.write(row, col, pathloss, center_tan)
                     col += 1
                     worksheet.write(row, col, antenna_gain, center_tan)
                     col += 1
-                    worksheet.write(row, col, _noise, center_tan)
+                    worksheet.write(row, col, _noise, center_peach)
                     col += 1
-                    worksheet.write(row, col, rssi_adj, center_tan)
+                    worksheet.write(row, col, rssi_adj, center_peach)
                     col += 1
                     if (args.adjust_nf):
-                        worksheet.write(row, col, rssi_adj, center_tan)
+                        worksheet.write(row, col, rssi_adj, center_peach)
                         col += 1
-                    worksheet.write(row, col, _rxrate, center_tan)
+                    worksheet.write(row, col, _rxrate, center_peach)
                     col += 1
-                    worksheet.write(row, col, beacon_sig, center_tan)
+                    worksheet.write(row, col, beacon_sig, center_peach)
                     col += 1
-                    worksheet.write(row, col, sig, center_tan)
+                    worksheet.write(row, col, sig, center_peach)
                     col += 1
                     for x in range(4):
                         if (x < int(n)):
@@ -2761,7 +3492,6 @@ def main():
                     col += 1
                     worksheet.write(row, col, calc_ant4, center_pink)
                     col += 1
-
                     if (diff_a1 != "" and abs(diff_a1) > pfrange):
                         worksheet.write(row, col, diff_a1, center_yel_red)
                         col += 1
@@ -2796,7 +3526,6 @@ def main():
                     col += 1
                     worksheet.write(row, col, diff_dbm, center_blue)
                     col += 1
-
                     if (pfs == "FAIL"):
                         worksheet.write(row, col, pfs, red)
                         col += 1
@@ -2809,9 +3538,26 @@ def main():
                     col += 1
                     worksheet.write(row, col, total_run_duration_str, green)
                     col += 1
+                    ap_power_unit = int(ap_dbm)
+                    if not cc_dbm:
+                        cc_dbm = 0
+                    if (int(cc_dbm) != int(ap_dbm)):
+                        err = "ERROR:  Controller dBm : %s != AP dBm: %s.  " % (cc_dbm, ap_dbm)
+                        logg.info(err)
+                        csv.write(err)
+                        csvs.write(err)
+                        e_tot += err
+                    print("cc_power: {} ap_power_unit: {}".format(cc_power, ap_power_unit))
+                    if (str(cc_power) != str(ap_power_unit)):
+                        err = "ERROR:  Controller Power : %s != AP Power: %s.  " % (cc_power, ap_power_unit)
+                        logg.info(err)
+                        csv.write(err)
+                        csvs.write(err)
+                        e_tot += err
 
                     if (_bw != bw):
-                        err = "WARNING: Known Issue with AX210 Requested bandwidth: %s != station's reported bandwidth: %s.  " % (bw, _bw)
+                        err = "WARNING: Known Issue with AX210 Requested bandwidth: %s != station's reported bandwidth: %s.  " % (
+                            bw, _bw)
                         e_tot += err
                         logg.info(err)
                         csv.write(err)
@@ -2822,10 +3568,9 @@ def main():
                         csv.write(err)
                         csvs.write(err)
                         e_tot += err
-
                     if (e_tot == ""):
                         e_w_tot = e_tot + w_tot + i_tot
-                        if(w_tot == ""):
+                        if (w_tot == ""):
                             worksheet.write(row, col, e_w_tot, green_left)
                             col += 1
                         else:
@@ -2837,6 +3582,14 @@ def main():
                         col += 1
                     row += 1
 
+                    # reset colors in case of failure
+                    center_blue = center_blue_tmp
+                    center_tan = center_tan_tmp
+                    center_peach = center_peach_tmp
+                    center_pink = center_pink_tmp
+                    center_yel_red = center_yel_red_tmp
+                    center_yel = center_yel_tmp
+
                     csv.write("\n")
                     csv.flush()
 
@@ -2845,15 +3598,15 @@ def main():
 
                     # write out the data and exit on error : error takes presidence over failure
                     if (e_tot != ""):
-                        if(args.exit_on_error):
+                        if (args.exit_on_error):
                             logg.info("EXITING ON ERROR, exit_on_error err: {} ".format(e_tot))
                             close_workbook(workbook)
                             exit(1)
 
                     # write out the data and exit on failure
                     if (pf == 0):
-                        if(args.exit_on_fail):
-                            if(e_tot != ""):
+                        if (args.exit_on_fail):
+                            if (e_tot != ""):
                                 logg.info("EXITING ON FAILURE as a result of  err {}".format(e_tot))
                             else:
                                 logg.info("EXITING ON FAILURE, exit_on_fail set there was no err ")
@@ -2867,21 +3620,22 @@ def main():
     # Set things back to defaults
     # if no_cleanup_station is False then clean up station
     # TODO Have the station clean up be with
-    if(args.no_cleanup_station is False):
+    if (args.no_cleanup_station is False):
         # Remove LANforge traffic connection
         logg.info("Remove LANforge traffic connections")
         subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                        "--cmd", "set_cx_state all c-udp-power DELETED"], capture_output=False)
+                        "--cmd", "set_cx_state all c-udp-power DELETED"], cwd=BASE_DIR, capture_output=False)
         subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                        "--cmd", "rm_endp c-udp-power-A"], capture_output=False)
+                        "--cmd", "rm_endp c-udp-power-A"], cwd=BASE_DIR, capture_output=False)
         subprocess.run(["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--action", "do_cmd",
-                        "--cmd", "rm_endp c-udp-power-B"], capture_output=False)
+                        "--cmd", "rm_endp c-udp-power-B"], cwd=BASE_DIR, capture_output=False)
 
         logg.info("--no_cleanup_station set False,  Deleting all stations on radio {}".format(args.radio))
-        subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--action", "del_all_phy", "--port_del", args.radio], timeout=20, capture_output=False)
+        subprocess.run(["./lf_associate_ap.pl", "--mgr", lfmgr, "--action", "del_all_phy", "--port_del", args.radio],
+                       timeout=20, cwd=BASE_DIR, capture_output=False)
 
     # keep the state of the controller
-    if(args.keep_state):
+    if (args.keep_state):
         # TODO may have to check the AP type or AP series
         logg.info("9800/3504 flag --keep_state True thus leaving controller is last test configuration")
         if args.band == 'dual_band_6g':
@@ -2898,7 +3652,7 @@ def main():
             pss = cs.show_ap_dot11_6gz_summary()
             logg.info(pss)
             pss = cs.show_ap_bssid_6ghz()
-            logg.info(pss)                                
+            logg.info(pss)
         pss = cs.show_ap_dot11_5gz_summary()
         logg.info(pss)
         pss = cs.show_ap_dot11_24gz_summary()
@@ -2917,56 +3671,69 @@ def main():
             logg.info(pss)
 
         # Disable wlan networks to try to restore to original configuration
-        if args.band == 'dual_band_6g':
-            pss = cs.ap_dot11_dual_band_6ghz_shutdown()
-            logg.info(pss)
-        elif args.band == 'dual_band_5g':
-            pss = cs.ap_dot11_dual_band_5ghz_shutdown()
-            logg.info(pss)
-        else:
-            pss = cs.ap_dot11_6ghz_shutdown()
-            logg.info(pss)
-        pss = cs.ap_dot11_5ghz_shutdown()
-        logg.info(pss)
-        pss = cs.ap_dot11_24ghz_shutdown()
-        logg.info(pss)
+        # if args.band == 'dual_band_6g':
+        #     pss = cs.ap_dot11_dual_band_6ghz_shutdown()
+        #     logg.info(pss)
+        # elif args.band == 'dual_band_5g':
+        #     pss = cs.ap_dot11_dual_band_5ghz_shutdown()
+        #     logg.info(pss)
+        # else:
+        #     pss = cs.ap_dot11_6ghz_shutdown()
+        #     logg.info(pss)
+        # pss = cs.ap_dot11_5ghz_shutdown()
+        # logg.info(pss)
+        # pss = cs.ap_dot11_24ghz_shutdown()
+        # logg.info(pss)
 
         if args.band == 'dual_band_6g':
-            pss = cs.config_dot11_dual_band_6ghz_tx_power()
-            logg.info(pss)
+            if not args.skip_dut:
+                pss = cs.config_dot11_dual_band_6ghz_tx_power()
+                logg.info(pss)
         elif args.band == 'dual_band_5g':
-            pss = cs.config_dot11_dual_band_5ghz_tx_power()
-            logg.info(pss)
+            if not args.skip_dut:
+                pss = cs.config_dot11_dual_band_5ghz_tx_power()
+                logg.info(pss)
         elif args.band == '6g':
-            pss = cs.config_dot11_6ghz_tx_power()
-            logg.info(pss)
+            if not args.skip_dut:
+                pss = cs.config_dot11_6ghz_tx_power()
+                logg.info(pss)
         elif args.band == '5g':
-            pss = cs.config_dot11_5ghz_tx_power()
-            logg.info(pss)
+            if not args.skip_dut:
+                pss = cs.config_dot11_5ghz_tx_power()
+                logg.info(pss)
 
         # NSS is set on the station earlier...
         if (ch != "NA"):
             if args.band == 'dual_band_6g':
-                pss = cs.config_dot11_dual_band_6ghz_channel()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_dual_band_6ghz_channel()
             elif args.band == 'dual_band_5g':
-                pss = cs.config_dot11_dual_band_5ghz_channel()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_dual_band_5ghz_channel()
             elif args.band == '6g':
-                pss = cs.config_dot11_6ghz_channel()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_6ghz_channel()
             elif args.band == '5g':
-                pss = cs.config_dot11_5ghz_channel()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_5ghz_channel()
             elif args.band == '24g':
-                pss = cs.config_dot11_24ghz_channel()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_24ghz_channel()
             logg.info(pss)
 
         if (bw != "NA"):
             if args.band == 'dual_band_6g':
-                pss = cs.config_dot11_dual_band_6ghz_channel_width()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_dual_band_6ghz_channel_width()
             elif args.band == 'dual_band_5g':
-                pss = cs.config_dot11_dual_band_5ghz_channel_width()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_dual_band_5ghz_channel_width()
             elif args.band == '6g':
-                pss = cs.config_dot11_6ghz_channel_width()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_6ghz_channel_width()
             elif args.band == '5g':
-                pss = cs.config_dot11_5ghz_channel_width()
+                if not args.skip_dut:
+                    pss = cs.config_dot11_5ghz_channel_width()
             logg.info(pss)
 
         if args.series == "9800":
@@ -2997,10 +3764,11 @@ def main():
             logg.info(pss)
 
         else:
-            pss = cs.config_no_ap_dot11_5ghz_shutdown()
-            logg.info(pss)
-            pss = cs.config_no_ap_dot11_24ghz_shutdown()
-            logg.info(pss)
+            pass
+            # pss = cs.config_no_ap_dot11_5ghz_shutdown()
+            # logg.info(pss)
+            # pss = cs.config_no_ap_dot11_24ghz_shutdown()
+            # logg.info(pss)
 
         if args.band == 'dual_band_6g':
             pss = cs.config_no_ap_dot11_dual_band_6ghz_shutdown()  # enable_network dual_band 6ghz
@@ -3012,11 +3780,13 @@ def main():
             pss = cs.config_no_ap_dot11_6ghz_shutdown()  # enable_network 6ghz
             logg.info(pss)
         if args.band == '5g':
-            pss = cs.config_no_ap_dot11_5ghz_shutdown()  # enable_network 5ghz
+            if not args.skip_dut:
+                pss = cs.config_no_ap_dot11_5ghz_shutdown()  # enable_network 5ghz
             logg.info(pss)
         if args.band == '24g':
-            pss = cs.config_no_ap_dot11_24ghz_shutdown()  # enable_network 24ghz
-            logg.info(pss)
+            if not args.skip_dut:
+                pss = cs.config_no_ap_dot11_24ghz_shutdown()  # enable_network 24ghz
+                logg.info(pss)
 
         # try enabling all bands
         if args.enable_all_bands:
@@ -3051,28 +3821,45 @@ def main():
         pss = cs.show_ap_dot11_6gz_summary()
         logg.info(pss)
         pss = cs.show_ap_bssid_6ghz()
-        logg.info(pss)                                
+        logg.info(pss)
 
-    pss = cs.show_ap_dot11_5gz_summary()
-    logg.info(pss)
-    pss = cs.show_ap_dot11_24gz_summary()
-    logg.info(pss)
+    # pss = cs.show_ap_dot11_5gz_summary()
+    # logg.info(pss)
+    # pss = cs.show_ap_dot11_24gz_summary()
+    # logg.info(pss)
     # Generate Report
     report.set_title("Tx Power")
     report.build_banner()
     report.set_table_title("Tx Power")
 
-    # close the workbook 
+    # close the workbook
     close_workbook(workbook)
 
     if args.html_report:
         # TODO fix csv output
-        report.set_table_dataframe_from_csv_sep_tab(full_outfile)
-        report.build_table()
+        # report.set_table_dataframe_from_csv_sep_tab(full_outfile)
+        # report.build_table()
         # TODO the table looks off
         try:
-            report.set_table_dataframe_from_xlsx(outfile_xlsx)
-            report.build_table()
+            # report.set_table_dataframe_from_xlsx(outfile_xlsx)
+            df = pd.read_excel(outfile_xlsx, header=None)
+            df.columns = df.iloc[1]
+            df = df.drop([0, 1]).reset_index(drop=True)
+            # report.build_table()
+            report.set_table_title("Test Configuration")
+            report.build_table_title()
+            try:
+                pass_fail_col = [col for col in df.columns if "PASS" in col.replace(" ", "").replace("\n", "")][0]
+                pass_count = (df[pass_fail_col] == "PASS").sum()
+                test_setup_info["Tests Passed"] = "{}/{}".format(pass_count, len(df))
+            except BaseException:
+                traceback.print_exc()
+            report.test_setup_table(value="Test Setup", test_setup_data=test_setup_info)
+            cols_split = 12
+            for i in range(0, len(df.columns), cols_split):
+                subset = df.iloc[:, i:i + cols_split]
+                report.set_table_dataframe(subset)
+                report.build_table()
             report.build_footer()
             report.write_html_with_timestamp()
             report.write_index_html()
@@ -3081,9 +3868,14 @@ def main():
             # report.write_pdf_with_timestamp(_page_size='A4', _orientation='Portrait')
             # report.write_pdf_with_timestamp(_page_size='A4', _orientation='Landscape')
         except BaseException:
-             traceback.print_exc()
+            traceback.print_exc()
 
-    
+    return {
+        "report_dir": kpi_path,
+        "results_dir_name": results_dir_name,
+        "client_info": client_info_list
+    }
+
 
 # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----
 if __name__ == '__main__':
