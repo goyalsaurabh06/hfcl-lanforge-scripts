@@ -19,6 +19,7 @@ import csv
 from scp import SCPClient
 from tabulate import tabulate
 import re
+import pandas as pd
 
 import requests
 
@@ -78,7 +79,24 @@ station_profile = importlib.import_module("py-json.station_profile")
 StationProfile = station_profile.StationProfile
 lf_bandsteer = importlib.import_module("py-scripts.lf_bandsteer")
 BandSteer = lf_bandsteer.BandSteer
+try:
+    # Try pip module (if future added)
+    lf_tx_power = importlib.import_module("lanforge_scripts.lf_tx_power")
 
+except ModuleNotFoundError:
+    # Fallback → load from repo path
+    BASE_DIR = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../hfcl-lanforge-scripts")
+    )
+
+    tx_power_path = os.path.join(BASE_DIR, "lf_tx_power.py")
+
+    if not os.path.exists(tx_power_path):
+        raise FileNotFoundError(f"lf_tx_power.py not found at {tx_power_path}")
+
+    spec = importlib.util.spec_from_file_location("lf_tx_power", tx_power_path)
+    lf_tx_power = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lf_tx_power)
 class lf_tests(lf_libs):
     """
         lf_tools is needed in lf_tests to do various operations needed by various tests
@@ -832,6 +850,269 @@ class lf_tests(lf_libs):
 
     def multiband_performance_test(self):
         pass
+
+    def run_tx_power_test(self, tx_config, get_target_object, get_testbed_details):
+        """
+        Execute TX Power Sweep Automation Using LANforge Script.
+
+        This method acts as the integration layer between pytest test cases
+        and the standalone TX power automation script (`lf_tx_power.py`).
+
+        The TX power script performs:
+            • Optional LANforge station creation
+            • TX power sweep on DUT radio
+            • RSSI measurement via LANforge client
+            • TX power calculation using pathloss model
+            • Report generation (HTML / CSV / XLSX)
+
+        DUT automation inside the TX power script is disabled by default
+        because DUT configuration (country, channel, bandwidth) is already
+        handled by pytest fixtures.
+
+        Therefore this method forces:
+
+            skip_dut = True
+
+        so the TX power script only performs measurement logic.
+
+        Parameters
+        ----------
+        tx_config : dict
+            Dictionary containing TX power execution parameters generated
+            from pytest test cases.
+
+            Example:
+
+            {
+                "band": "2g",
+                "channel": 1,
+                "bandwidth": 40,
+                "ssid": "HFCL_2G",
+                "ssidpw": "12345678",
+                "security": "wpa2",
+                "station": "sta_1",
+                "radio": "wiphy0",
+                "txpower": [11,12,13,14],
+                "pathloss": 38,
+                "antenna_gain": 0,
+                "duration": 25,
+                "create_station": True,
+                "outfile": "tx_2g_1_40"
+            }
+
+        get_target_object : fixture
+            Framework fixture providing DUT automation interface.
+            Used for executing generic commands (ex: iw dev).
+
+        Returns
+        -------
+        dict
+            Paths of generated report files.
+
+            {
+                "html_report": ".../report/file.html",
+                "csv_report": ".../report/file.csv",
+                "xlsx_report": ".../report/file.xlsx"
+            }
+
+        Notes
+        -----
+        • Test cases do NOT control DUT automation.
+        • TX power sweep is controlled by the TX script.
+        • Test cases attach reports to Allure and perform validation.
+        """
+
+        # set attenuator to 0
+        atten_sr = self.attenuator_serial()
+        logging.info("atten ser:- " + str(atten_sr))
+        if atten_sr:
+            self.attenuator_modify("all", 'all', 0)
+        self.pre_cleanup()
+
+        # ---------------------------------------------------
+        # Obtain DUT objects from framework
+        # ---------------------------------------------------
+        dut_object = get_target_object.dut_library_object
+        target_object = get_target_object
+
+        # ---------------------------------------------------
+        # Always skip DUT automation inside TX script
+        # ---------------------------------------------------
+        tx_config["skip_dut"] = True
+        tx_config["local_lf_report_dir"] = self.local_report_path
+        port_data = self.wan_ports
+        port = list(port_data.keys())
+        upstream_port = port[0]
+        tx_config["upstream_port"] = str(upstream_port.split(".")[2])
+        tx_config["lfmgr"] = self.manager_ip
+        tx_config["lfport"] = self.manager_http_port
+        tx_config["series"] = "HFCL"
+        tx_config["ap"] = "HFCL"
+        tx_config["wifi_mode"] = "auto"
+        tx_config["ieee80211w"] = str(1)
+        tx_config.setdefault("scheme", "ssh")  # required by parser
+        tx_config.setdefault("dest", self.manager_ip)  # controller IP
+        tx_config.setdefault("port", "22")
+        tx_config.setdefault("user", "root")
+        tx_config.setdefault("passwd", "root")
+        tx_config.setdefault("prompt", "#")
+
+        tx_config.setdefault("log_level", "info")  # ⭐ your current error
+
+        # WLAN related (script expects these names)
+        tx_config.setdefault("wlan", "NA")
+        tx_config.setdefault("wlan_id", "NA")
+        #tx_config.setdefault("wlan_ssid", tx_config.get("ssid"))
+
+        # Optional but often used
+        tx_config.setdefault("create_wlan", False)
+        tx_config.setdefault("no_cleanup_station", False)
+        tx_config.setdefault("no_cleanup", False)
+        tx_config.setdefault("log_level", "INFO")
+        tx_config.setdefault("lf_logger_config_json", None)
+        tx_config.setdefault("debug", False)
+
+        tx_config.setdefault("test_rig", "HFCL")
+        tx_config.setdefault("test_tag", None)
+        tx_config.setdefault("dut_hw_version", "")
+        tx_config.setdefault("dut_sw_version", "")
+        tx_config.setdefault("dut_model_num", "")
+        tx_config.setdefault("dut_serial_num", "")
+        tx_config.setdefault("test_priority", "")
+        tx_config.setdefault("test_id", "TX power")
+        tx_config.setdefault("lfresource2", None)
+        tx_config.setdefault("pf_ignore_offset", "0")
+        tx_config.setdefault("adjust_nf", False)
+        tx_config.setdefault("beacon_dbm_diff", "7")
+        tx_config.setdefault("vht160", False)
+        tx_config.setdefault("wave2", False)
+        tx_config.setdefault("nss_4x4_override", False)
+        tx_config.setdefault("nss_4x4_ap_adjust", False)
+        tx_config.setdefault("set_nss", False)
+        tx_config.setdefault("create_wlan", False)
+        tx_config.setdefault("html_report", True)
+        tx_config.setdefault("exit_on_fail", False)
+        tx_config.setdefault("exit_on_error", False)
+        tx_config.setdefault("wait_time", "180")
+        tx_config.setdefault("wait_forever", False)
+        tx_config.setdefault("show_lf_portmod", False)
+        tx_config.setdefault("testbed_id", None)
+        tx_config.setdefault("testbed_location",  "default location")
+        tx_config.setdefault("ap_info",[])
+        tx_config.setdefault("module", None)
+        tx_config.setdefault("module_scrapli", False)
+        tx_config.setdefault("timeout", "3")
+        tx_config.setdefault("tag_policy", "NA")
+        tx_config.setdefault("policy_profile", "NA")
+        tx_config.setdefault("ap_band_slot_24g", "NA")
+        tx_config.setdefault("ap_band_slot_5g", "NA")
+        tx_config.setdefault("ap_band_slot_6g", "NA")
+        tx_config.setdefault("ap_dual_band_slot_5g", "NA")
+        tx_config.setdefault("ap_dual_band_slot_6g", "NA")
+        tx_config.setdefault("tx_pw_cmp_to_prev", False)
+        tx_config.setdefault("keep_state", False)
+        tx_config.setdefault("enable_all_bands", False)
+        tx_config.setdefault("tx_power_adjust_6E", False)
+        tx_config.setdefault("mtk7921k", False)
+        tx_config.setdefault("mtk7921k_beacon", False)
+
+
+        # ---------------------------------------------------
+        # Execute TX power script
+        # ---------------------------------------------------
+        logging.info("Starting TX Power Script...")
+        logging.getLogger().setLevel(logging.INFO)
+        result = lf_tx_power.main(tx_config, target_object, dut_object)
+        results_dir_name = result["results_dir_name"]
+        logging.info(f"TX Power results directory: {results_dir_name}")
+        report_dir = result.get("report_dir")
+        client_data = result.get("client_info", [])
+        logging.info("client data:- " + str(client_data))
+        if client_data:
+            allure.attach(
+                json.dumps(client_data, indent=4),
+                name="Client Info Per TX Sweep",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+        # ⭐ convert to absolute path (critical fix)
+        report_dir = os.path.abspath(report_dir) if report_dir else None
+        results_dir_name = os.path.basename(report_dir)
+
+        logging.info("report_dir: " + str(report_dir))
+        logging.info(f"resolved results directory: {results_dir_name}")
+
+        # ------------------------------------------------
+        # Verify report directory exists
+        # ------------------------------------------------
+        if not os.path.isdir(report_dir):
+            logging.error(f"Report directory not found: {report_dir}")
+            return False
+
+        try:
+
+            self.attach_report_graphs(results_dir_name, "TX Power Report PDF")
+
+            kpi_status = self.attach_report_kpi(results_dir_name)
+
+            if not kpi_status:
+                logging.error("KPI CSV not found")
+                return False
+
+        except Exception as e:
+            logging.error(f"Report attachment failed: {e}")
+            return False
+
+        logging.info("TX Power report attached successfully")
+
+
+        # ------------------------------------------------
+        # KPI PASS/FAIL validation (FINAL LOGIC)
+        # ------------------------------------------------
+        try:
+            kpi_file = os.path.join(report_dir, "kpi.csv")
+
+            if not os.path.exists(kpi_file):
+                logging.error(f"KPI file not found: {kpi_file}")
+                return False
+
+            # auto detect separator (tab/comma safe)
+            df = pd.read_csv(kpi_file, sep=None, engine='python')
+
+            if df.empty:
+                logging.error("KPI file is empty")
+                return False
+
+            # normalize column names
+            df.columns = [col.strip().lower() for col in df.columns]
+
+            if "pass/fail" not in df.columns:
+                logging.error(f"'pass/fail' column not found in KPI. Available columns: {df.columns}")
+                return False
+
+            status_list = df["pass/fail"].astype(str).str.strip().str.upper().tolist()
+
+            fail_count = status_list.count("FAIL")
+            logging.info("status_list:- " + str(status_list))
+            logging.info("fail_count:- " + str(fail_count))
+
+            if fail_count > 0:
+                logging.error(f"TX Power FAILED → {fail_count} failures out of {len(status_list)}")
+
+                # optional: print few failed rows for debug
+                failed_rows = df[df["pass/fail"].str.upper() == "FAIL"]
+                logging.error(f"Failed rows preview:\n{failed_rows.head(5)}")
+
+                return False
+
+            logging.info(f"TX Power PASSED → all {len(status_list)} entries passed")
+
+        except Exception as e:
+            logging.error(f"KPI validation failed: {e}")
+            return False
+
+        return True
+
 
     def multi_psk_test(self, band="twog", mpsk_data=None, ssid="OpenWifi", bssid="['BLANK']", passkey="OpenWifi",
                        encryption="wpa", mode="BRIDGE", num_sta=1, dut_data=None):
