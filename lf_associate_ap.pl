@@ -43,7 +43,7 @@ use Carp;
 use POSIX qw(ceil floor);
 use Scalar::Util; #::looks_like_number;
 use Getopt::Long;
-
+use constant NA => "NA";
 no warnings 'portable';  # Support for 64-bit ints required
 use Socket;
 #use Data::Dumper;
@@ -95,7 +95,7 @@ my  $log_cli            = "unset"; # use ENV{'LOG_CLI'}
 # and we're assuming the port is on the same resource (1).
 our $upstream_port      = "eth1";      # Step 1 upstream port
 our $sta_wiphy          = "wiphy0";    # physical parent (radio) of virtual stations
-our $phy_channel        = ""; # channel number
+our $phy_channel        = "-1"; # channel number
 our $phy_antenna        = ""; # number of antennas, 0 means all
 our %wiphy_bssids       = ();
 our $admin_down_on_add  = 0;
@@ -141,8 +141,9 @@ our %sec_options        = (
    "no-supp-op-class-ie"   =>    0x4000000000,  # Do not include supported-oper-class-IE in assoc requests.  May work around AP bugs.
    "txo-enable"            =>    0x8000000000,  # Enable/disable tx-offloads, typically managed by set_wifi_txo command
    "wpa3"                  =>    0x10000000000, # Enable WPA-3 (SAE Personal) mode.
+   "wpa2,wpa3"             =>    0x10000000400, # Enable wpa2,wpa3 mixed mode.
    "use-bss-transition"    =>    0x80000000000, # Enable BSS transition.
-   "disable-twt"           =>    0x100000000000, # Disable TWT mode 
+   "disable-twt"           =>    0x100000000000, # Disable TWT mode
 );
 our %ieee80211w_options = (
    "disabled"  => 0,
@@ -214,7 +215,7 @@ our %wifi_modes = (
 );
 our $wifi_mode ="";
 our $bssid = "";
-my $mode_list = join("|", sort keys %wifi_modes);
+my $mode_list = join(" | ", map { "$_ = $wifi_modes{$_}" } sort keys %wifi_modes);
 
 ## ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- #
 ##                   Usage                                     #
@@ -227,17 +228,19 @@ my $usage = qq($0   [--mgr {host-name | IP}]
                                  # same effect when setting env var LOG_CLI=STDOUT
       ##       AP selection
       [--radio {name}]           # e.g. wiphy2
-      [--channel {channel}]      # e.g. 52, 161, 153
+      [--channel {channel}]      # e.g. 52, 161, 153  , 6E cannels end in an 'e' or add 190 to the 6e channel
                                  # please check the LANforge GUI to verify resulting selection
                                  # center channels might be selected differently than you intended
       [--antenna {1,2,3,4}]      # select number of antennas
       [--ssid {ssid}]            # e.g. jedtest
       [--bssid {aa:bb:cc:00:11:22, or DEFAULT} # AP BSSID to connect to
-      [--security {open|wep|wpa|wpa2|wpa3}] # station authentication type, Default is open
+      [--security {open|wep|wpa|wpa2|wpa3|wpa2,wpa3}] # station authentication type, Default is open
       [--xsec {comma,separated,list} ] # dot1x, 11u, other features, read script {to set flags same as in add_sta}
       [--passphrase {...}]       # Set security too if you want to enable security
       [--wifi_mode {$mode_list}]
       [--ieee80211w {disabled,optional,required}] # protected management frames (wpa2-ent/wpa3) also { NA, 0, 1, 2 }
+
+      [--initial_band_pref {initial_band_pref}] # initially connect on this band, if available in scan. 0=ignore, 2=2ghz, 5=5ghz, 6=6ghz.
 
       ##       station configuration
       [--num_stations {$num_stations}] # Defaults to 1
@@ -407,7 +410,7 @@ sub load_db {
    my $db_name = shift;
    die ("::load_db: called with blank database name. Did you mean EMPTY?") if ($db_name eq "");
    print "Loading database $db_name ...";
-   $::utils->doCmd(fmt_cmd("load", $db_name, "overwrite"));
+   $::utils->doCmd($::utils->fmt_cmd("load", $db_name, "overwrite"));
 
    for (my $i = 20 ; $i>0; $i--) {
       sleep(1);
@@ -528,7 +531,7 @@ sub fmt_vsta_cmd {
       $ap = $bssid;
    }
    my $cfg_file         = "NA";
-   my $mode             = 8; # default to a/b/g/n/AC
+   my $mode             = 0; # default to AUTO , the MTK7916 does not support abgnAC
    my $rate             = "NA";
    my $amsdu            = "NA";
    my $ampdu_factor     = "NA";
@@ -589,6 +592,30 @@ sub fmt_vrad_cmd {
                   $mac, "$antenna", "$flags", "$flags_mask" );
 }
 
+sub fmt_set_wifi_extra2 {
+    my ($sta_name) = @_;
+    die("fmt_set_wifi_extra2 requires sta_name.") unless($sta_name);
+    my $port                  = "NA";
+    my $req_flush             = "NA";
+    my $ignore_probe          = "NA";
+    my $ignore_auth           = "NA";
+    my $ignore_assoc          = "NA";
+    my $ignore_reassoc        = "NA";
+    my $corrupt_gtk_rekey_mic = "NA";
+    my $radius_ip             = "NA";
+    my $radius_port           = "NA";
+    my $freq_24               = "NA";
+    my $freq_5                = "NA";
+    my $post_ifup_script      = "NA";
+    my $ocsp                  = "NA";
+    my $venue_id              = "NA";
+    my $sae_pwe               = "NA";
+    my $initial_band_pref     = $::initial_band_pref;
+    return $::utils->fmt_cmd("set_wifi_extra2", 1, $resource, $sta_name, $req_flush, $ignore_probe, $ignore_auth,
+                    $ignore_assoc, $ignore_reassoc, $corrupt_gtk_rekey_mic, $radius_ip, $radius_port, $freq_24, $freq_5,
+                    $post_ifup_script, $ocsp, $venue_id, $sae_pwe, $initial_band_pref);
+}
+
 sub createEpPair {
    my $sta_name      = shift;
    die("createEpPair: please pass station name, bye")    unless(defined $sta_name         && $sta_name ne '');
@@ -643,7 +670,7 @@ sub createEpPair {
 }
 
 sub fmt_port_cmd {
-   my($resource, $port_id, $ip_addr, $mac_addr) = @_;
+   my($resource, $port_id, $ip_addr, $mac_addr, $port_down) = @_;
    my $use_dhcp         = ($ip_addr =~ /\bDHCP\b/) ? 1 : 0;
    my $use_dhcp6        = ($ip_addr =~ /\bDHCP6\b/) ? 1 : 0;
    my $ip               = ($use_dhcp||$use_dhcp6) ? "0.0.0.0" : $ip_addr ;
@@ -651,6 +678,7 @@ sub fmt_port_cmd {
    #print "fmt_port_cmd: RES $resource PORT $port_id IP_A $ip_addr MAC $mac_addr -> $ip\n" unless($::quiet eq "yes");
    my $cmd_flags        = 'NA'; #0;
    my $cur_flags        = 0;
+   $cur_flags           |= 0x1           if ($port_down);
    $cur_flags           |= 0x80000000    if ($use_dhcp);
    $cur_flags           |= 0x20000000000 if ($use_dhcp6);
    #print "fmt_port_cmd: DHCP($use_dhcp) $cur_flags\n" unless($::quiet eq "yes");
@@ -805,8 +833,13 @@ sub new_wifi_station {
    # $flagsmask     |= $::sec_options{$::security};
    # We are always configuring security to one thing or another, so we need to
    # mask all of the bits properly.
-   $flagsmask |= (0x10 | 0x200 | 0x400 | 0x10000000000);
-   $flagsmask |= 0x1000000000 if ($::admin_down_on_add);
+   # wpa3=              0x10000000000
+   # create_admin_down= 0x1000000000
+   $flagsmask     |= (0x10 | 0x200 | 0x400 | 0x10000000000);
+   if ($::admin_down_on_add) {
+      $flags      |= 0x1000000000;
+      $flagsmask  |= 0x1000000000;
+   }
 
    if (defined $::xsec && "$::xsec" ne "") {
       for my $sec_op (split(',', $::xsec)) {
@@ -818,16 +851,19 @@ sub new_wifi_station {
    }
    $flags      = "+0" if ( $flags      == 0);
    $flagsmask  = "+0" if ( $flagsmask  == 0);
+   #printf("FLAGS %0x MASK %0x\n", $flags, $flagsmask);
    # perform the station create first, then assign IP as necessary
    my $sta1_cmd   = fmt_vsta_cmd($::resource, $::sta_wiphy, $sta_name,
                                  "$flags", "$::ssid", "$::passphrase",
                                  $mac_addr, "$flagsmask", $wifi_m, $::bssid);
    $::utils->doCmd($sta1_cmd);
-   #$::utils->sleep_ms(20);
-   $sta1_cmd = fmt_port_cmd($resource, $sta_name, $ip_addr, $mac_addr);
+   $::utils->sleep_ms(10);
+   # $::utils->doAsyncCmd($::utils->fmt_cmd("nc_show_port", 1, $::resource, $sta_name));
+   # $::utils->sleep_ms(20);
+   $sta1_cmd = fmt_port_cmd($resource, $sta_name, $ip_addr, $mac_addr, $::admin_down_on_add);
    $::utils->doCmd($sta1_cmd);
-   #$::utils->sleep_ms(20);
-   #$::utils->doAsyncCmd($::utils->fmt_cmd("nc_show_port", 1, $::resource, $sta_name));
+   # $::utils->sleep_ms(20);
+   # $::utils->doAsyncCmd($::utils->fmt_cmd("nc_show_port", 1, $::resource, $sta_name));
    if ($::admin_down_on_add) {
      my $cur_flags = 0x1; # port down
      my $ist_flags = 0x800000; # port down
@@ -837,6 +873,21 @@ sub new_wifi_station {
      $::utils->doCmd($sta1_cmd);
      #$::utils->sleep_ms(20);
    }
+
+    my @list = (0,2,5,6);
+    if ( $::initial_band_pref) {
+        if ( $::initial_band_pref >= 0 && $::initial_band_pref <= 6 && (grep { $_ == $::initial_band_pref } @list)) {
+            print "Selected initial band preference as $::initial_band_pref GHz...\n";
+            my $cmd = fmt_set_wifi_extra2($sta_name);
+            $::utils->doCmd($cmd);
+        }
+        else {
+            print("\n* initial_band_pref value outside of values {0, 2, 5, 6} for -- 0=ignore, 2=2ghz, 5=5ghz, 6=6ghz.\n")
+        }
+    }
+    else {
+        print "Not selected initial band preference...\n";
+    }
 
    #if ($sleep_amt > 0) {
    #  sleep $sleep_amt;
@@ -1255,7 +1306,6 @@ sub resetCounters {
 sub doStep_1 {
    my $sta_name   = (sort(keys %::sta_names))[0];
 
-
    removeOldCrossConnects();
    sleep(2);
    removeOldStations();
@@ -1284,25 +1334,35 @@ sub doStep_1 {
       $i++;
    }
    sleep(1);
-   #print "**************************************************\n";
    foreach my $sta_name (sort(keys %::sta_names)) {
       my $status = $::utils->doAsyncCmd($::utils->fmt_cmd("nc_show_port", 1, $::resource, $sta_name));
+      # $::utils->sleep_ms(10);
    }
-   sleep(1);
-   #print "**************************************************\n";
+
+   # $::utils->sleep_ms(75 * (1 + $#::sta_names)); # let the GUI catch up
+   if ($::admin_down_on_add) {
+      print "\n Stations were created admin down, bringing them up...\n";
+      for $sta_name (sort(keys %::sta_names)) {
+         my $status = $::utils->doAsyncCmd(
+            $::utils->fmt_cmd("set_port", 1, $::resource, $sta_name,
+            NA, NA, NA, NA, 0, NA, NA, NA, NA, 8388610)); # set port admin up
+         # $::utils->sleep_ms(10);
+      }
+   }
+   my $new_sta_count    = keys %results1;
+   #$::utils->sleep_ms(75 * (1 + $new_sta_count)); # bit of time be
 
    print " Created $::num_stations stations\n";
    sleep(1);
 
-   my $new_sta_count    = keys %results1;
    my $found_stations   = 0;
    awaitNewStations();
-   sleep 1;
+   sleep(1);
 
    # we create a pair of connection endpoints and
    # a cross-connect between them for every station
    createEndpointPairs();
-   sleep 5;
+   sleep(5);
 
    if ($::traffic_type eq "separate") {
       adjustForUpload();
@@ -1570,7 +1630,10 @@ sub set_channel {
     die("set_channel: unset resource") unless ((defined $res) && ("" ne $res));
     die("set_channel: unset radio") unless ((defined $phy) && ("" ne $phy));
     die("set_channel: unset channel") unless ((defined $chan) && ("" ne $chan));
-
+    if (index($chan,"e") != -1) {
+        my $tmp_chan = int($chan =~ s/e//r);
+        $chan = $tmp_chan + 190;
+    }
     my $mode = 'NA';
     my $cmd = $::utils->fmt_cmd("set_wifi_radio", 1, $res,
                                  $phy,
@@ -1641,7 +1704,7 @@ GetOptions
   'resource2|r2=i'            => \$::resource2,
   'quiet|q=s'                 => \$::quiet,
   'radio|o=s'                 => \$::sta_wiphy,
-  'channel|chan=i'            => \$::phy_channel,
+  'channel|chan=s'            => \$::phy_channel,
   'antenna|ant=s'             => \$::phy_antenna,
   'ssid|s=s'                  => \$::ssid,
   'security=s'                => \$::security,
@@ -1671,6 +1734,7 @@ GetOptions
   'port_del=s'                => \$::port_del,
   'admin_down_on_add'         => \$::admin_down_on_add,
   'ieee80211w=s'              => \$::ieee80211w,
+  'initial_band_pref=i'       => \$::initial_band_pref,
   'log_cli=s{0,1}'            => \$log_cli, # use ENV{LOG_CLI} elsewhere
   'help|?'                    => \$help,
 ) || (print($usage) && exit(1));
