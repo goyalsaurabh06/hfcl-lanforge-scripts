@@ -1257,7 +1257,7 @@ def main(tx_config=None, target_object=None, dut_obj=None):
     worksheet.write(row, col, 'Difference Between\n Controller dBm\n& Client Calc Combined\n Signal dBm', dblue_bold)
     col += 1
     worksheet.set_column(col, col, 12)  # Set width
-    worksheet.write(row, col, "PASS /\nFAIL\n( Offset within += %s dBm)" % (pf_dbm), dgreen_bold)
+    worksheet.write(row, col, "PASS /\nFAIL\n( Offset within +/-= %s dBm)" % (pf_dbm), dgreen_bold)
     col += 1
     worksheet.set_column(col, col, 24)  # Set width
     worksheet.write(row, col, 'Time Stamp\n', dgreen_bold)
