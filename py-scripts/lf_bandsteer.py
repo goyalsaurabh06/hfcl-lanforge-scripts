@@ -1127,9 +1127,6 @@ class BandSteer(Realm):
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
             self.station_profile.set_wifi_extra(key_mgmt="FT-EAP",
-                                                psk=passwd)
-            self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
-            self.station_profile.set_wifi_extra(key_mgmt="WPA-EAP",
                                                 identity="testuser",
                                                 eap="TTLS",
                                                 passwd="testpasswd",

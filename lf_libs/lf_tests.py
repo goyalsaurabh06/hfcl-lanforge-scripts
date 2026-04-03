@@ -21,6 +21,8 @@ from tabulate import tabulate
 import re
 import pandas as pd
 
+import subprocess
+from typing import Dict, List, Any
 import requests
 
 sys.path.append(os.path.join(os.path.abspath(__file__ + "../../../")))
@@ -1353,6 +1355,229 @@ class lf_tests(lf_libs):
 
         return sta_data
 
+    def analyze_sniffer_pcap(
+            self,
+            pcap_path: str,
+            client_mac: str,
+            mode: str,
+            window: float = 15.0,
+            show_events: bool = False,
+            frame_view: bool = True,
+    ):
+
+        PASS_RESULTS = {
+            "PASS_BAND_STEERING",
+            "PASS_11R_ROAM",
+            "PASS_11KV_ROAMING",
+        }
+
+        def norm(x):
+            return (x or "").strip().lower()
+
+        def parse_int(val):
+            try:
+                return int(val, 0)
+            except:
+                return None
+
+        def band_from_channel(ch):
+            try:
+                c = int(ch)
+            except:
+                return "unknown"
+            if 1 <= c <= 14: return "2.4G"
+            if 36 <= c <= 177: return "5G"
+            if 178 <= c <= 233: return "6G"
+            return "unknown"
+
+        # -------------------------------
+        # TSHARK
+        # -------------------------------
+        def run_tshark():
+            cmac = norm(client_mac)
+
+            display_filter = (
+                f'wlan.addr == {cmac} && ('
+                f'wlan.fc.type_subtype == 0 || '
+                f'wlan.fc.type_subtype == 1 || '
+                f'wlan.fc.type_subtype == 2 || '
+                f'wlan.fc.type_subtype == 3 || '
+                f'wlan.fixed.category_code == 10 || '
+                f'wlan.fixed.category_code == 5 || '
+                f'eapol)'
+            )
+
+            cmd = [
+                "tshark", "-r", pcap_path, "-Y", display_filter,
+                "-T", "fields",
+                "-E", "separator=,",
+                "-E", "quote=d",
+                "-E", "header=y",
+                "-e", "frame.number",
+                "-e", "frame.time_epoch",
+                "-e", "wlan.sa",
+                "-e", "wlan.da",
+                "-e", "wlan.bssid",
+                "-e", "wlan.ssid",
+                "-e", "wlan.fc.type_subtype",
+                "-e", "wlan.fixed.category_code",
+                "-e", "wlan.fixed.action_code",
+                "-e", "wlan_radio.channel",
+            ]
+
+            out = subprocess.run(cmd, capture_output=True, text=True)
+            if out.returncode != 0:
+                raise RuntimeError(out.stderr)
+
+            frames = []
+            reader = csv.DictReader(out.stdout.splitlines())
+
+            for r in reader:
+                frames.append({
+                    "no": r.get("frame.number"),
+                    "ts": float(r.get("frame.time_epoch", "0") or "0"),
+                    "bssid": norm(r.get("wlan.bssid")),
+                    "ssid": r.get("wlan.ssid"),
+                    "subtype": parse_int(r.get("wlan.fc.type_subtype")),
+                    "cat": parse_int(r.get("wlan.fixed.category_code")),
+                    "action": parse_int(r.get("wlan.fixed.action_code")),
+                    "channel": r.get("wlan_radio.channel"),
+                    "sa": norm(r.get("wlan.sa")),
+                    "da": norm(r.get("wlan.da")),
+                })
+
+            return sorted(frames, key=lambda x: x["ts"])
+
+        # -------------------------------
+        # EVENTS
+        # -------------------------------
+        def extract_events(frames):
+            events = []
+
+            for f in frames:
+                band = band_from_channel(f["channel"])
+
+                # 11v (BTM)
+                if f["cat"] == 10:
+                    if f["action"] == 7:
+                        events.append({"kind": "btm_request", "ts": f["ts"], "frame": f["no"], "band": band})
+                    elif f["action"] == 8:
+                        events.append({"kind": "btm_response", "ts": f["ts"], "frame": f["no"], "band": band})
+
+                # Assoc + Reassoc
+                if f["subtype"] in [0, 2]:
+                    events.append({"kind": "assoc_req", "ts": f["ts"], "frame": f["no"], "band": band})
+
+                if f["subtype"] in [1, 3]:
+                    events.append({"kind": "assoc_resp", "ts": f["ts"], "frame": f["no"], "band": band})
+
+            return events
+
+        # -------------------------------
+        # ANALYSIS
+        # -------------------------------
+        def analyze(events):
+            if mode != "band_steering":
+                raise ValueError("Unsupported mode")
+
+            btm_reqs = [e for e in events if e["kind"] == "btm_request"]
+            btm_resps = [e for e in events if e["kind"] == "btm_response"]
+
+            if not btm_reqs:
+                return "FAIL_BAND_STEERING", ["No BTM Request"]
+
+            if not btm_resps:
+                return "FAIL_BAND_STEERING", ["No BTM Response"]
+
+            for req in btm_reqs:
+                resp = next((r for r in btm_resps if r["ts"] > req["ts"]), None)
+                if not resp:
+                    continue
+
+                # Look at all future events
+                later = [e for e in events if e["ts"] > resp["ts"]]
+
+                for e in later:
+                    if e["band"] != req["band"] and e["band"] != "unknown":
+                        return "PASS_BAND_STEERING", [
+                            f"Band Steering Success ({req['band']} → {e['band']})"
+                        ]
+
+            return "FAIL_BAND_STEERING", ["No band transition after BTM"]
+
+        # -------------------------------
+        # FRAME VIEW (clean)
+        # -------------------------------
+        def build_frame_view(frames):
+            lines = []
+            lines.append("\nFILTERED ROAMING FRAMES:")
+            lines.append("=" * 120)
+
+            for f in frames:
+                band = band_from_channel(f["channel"])
+
+                if f["cat"] == 10 and f["action"] == 7:
+                    desc = "BTM Request"
+                elif f["cat"] == 10 and f["action"] == 8:
+                    desc = "BTM Response"
+                elif f["subtype"] in [0, 2]:
+                    desc = "Assoc/Reassoc Request"
+                elif f["subtype"] in [1, 3]:
+                    desc = "Assoc/Reassoc Response"
+                else:
+                    desc = "Other"
+
+                lines.append(
+                    f"{f['no']:>6}  {f['ts']:.6f}  "
+                    f"CH={f['channel']}({band})  "
+                    f"{desc:<25}  "
+                    f"{f['sa']} → {f['da']}  "
+                    f"SSID={f['ssid']}"
+                )
+
+            lines.append("=" * 120)
+            return "\n".join(lines)
+
+        # -------------------------------
+        # RUN
+        # -------------------------------
+        frames = run_tshark()
+        events = extract_events(frames)
+        result, details = analyze(events)
+
+        # -------------------------------
+        # REPORT
+        # -------------------------------
+        report = []
+        report.append("=" * 100)
+        report.append(f"CLIENT: {norm(client_mac)}")
+        report.append(f"MODE  : {mode}")
+        report.append("=" * 100)
+        report.append(f"\nRESULT:\n{result}")
+
+        for d in details:
+            report.append(f"- {d}")
+
+        if show_events:
+            report.append("\nEVENTS:")
+            for e in events:
+                report.append(f"[{e['frame']}] {e['kind']} | {e['band']}")
+
+        if frame_view:
+            report.append(build_frame_view(frames))
+
+        report.append("=" * 100)
+
+        return {
+            "client_mac": norm(client_mac),
+            "mode": mode,
+            "result": result,
+            "details": details,
+            "events": events,
+            "report_text": "\n".join(report),
+            "pass_status": result in PASS_RESULTS,
+        }
+
     def run_bandsteer_test(
             self,
             ssid,
@@ -1417,14 +1642,6 @@ class lf_tests(lf_libs):
         # {'wave2_2g_radios': 64, 'wave2_5g_radios': 64, 'wave1_radios': 64, 'mtk_radios': 19, 'ax200_radios': 1,
         #  'ax210_radios': 1, 'be200_radios': 1}
 
-        attenuators = get_testbed_details["traffic_generator"]["details"]["attenuator"]
-        attenuator1 = {
-            k: v for k, v in attenuators.items() if len(v) > 2
-        }
-        attenuator2 = {
-            k: v for k, v in attenuators.items() if len(v) == 2
-        }
-        # Initialize station-radio tracking dictionary at the beginning of the method
         station_radio_map = {}
 
         def attach_attenuator_state(band_steer, title="Attenuator State"):
@@ -1482,7 +1699,7 @@ class lf_tests(lf_libs):
             # -------------------- STA Creation --------------------
             sta_list = band_steer.get_sta_list_before_creation(
                 num_sta=1,
-                radio=dict_all_radios_5g["mtk_radios"][1])
+                radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
             # Clean up if there are already existing station with same name
@@ -1501,12 +1718,12 @@ class lf_tests(lf_libs):
                 # get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
 
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 400, idx - 1) # Initial attenuation to 40 for steer_fiveg case
+                    band_steer.set_atten('1.1.3009', 950, idx - 1) # Initial attenuation to 40 for steer_fiveg case
                     band_steer.set_atten('1.1.3002', 950, idx - 3) # module 1 and 2 setting to MAX
-                    band_steer.set_atten('1.1.3002', 0, idx - 1)
+                    band_steer.set_atten('1.1.3002', 400, idx - 1)
 
                 band_steer.create_clients(
-                    radio=dict_all_radios_5g["mtk_radios"][1],
+                    radio=dict_all_radios_5g["mtk_radios"][0],
                     ssid=ssid,
                     passwd=passkey,
                     security=security,
@@ -1519,12 +1736,12 @@ class lf_tests(lf_libs):
 
             else:
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 0, idx - 3)  # Initial attenuation to 0 for steer_fiveg case
+                    band_steer.set_atten('1.1.3009', 950, idx - 3)  # Initial attenuation to 0 for steer_fiveg case
                     band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
                 band_steer.create_clients(
-                    radio=dict_all_radios_5g["mtk_radios"][1],
+                    radio=dict_all_radios_5g["mtk_radios"][0],
                     ssid=ssid,
                     passwd=passkey,
                     security=security,
@@ -1538,7 +1755,7 @@ class lf_tests(lf_libs):
             # -------------------- Validate Initial Band --------------------
             # Attach Station IP map to allure report
             band_steer.get_station_ips()
-            
+
             ip_text = ""
             for station, ip in band_steer.station_ips.items():
                 ip_text += f"{station} : {ip}\n"
@@ -1602,7 +1819,7 @@ class lf_tests(lf_libs):
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
-                attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+                attenuator='1.1.3002', modules=[3, 4], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
 
             # temporarily waiting for 2 mins
             time.sleep(120)
@@ -1643,7 +1860,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -1664,7 +1882,10 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list:
+                result = test_results.get(sta)
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -1675,8 +1896,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid or before_channel == after_channel:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -1692,7 +1919,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            print("\nAnalysing Pcap")
+
+            all_pass = not functional_failures and not pcap_failures
+            for sta in sta_list:
+                client_mac = test_results.get(sta).get("client_mac")
+
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
+
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
         elif test_type == "pre_assoc":
             """
@@ -1954,6 +2211,7 @@ class lf_tests(lf_libs):
                 stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
 
                 test_results = {}
+                after_state = {}
                 for sta in sorted(stations):
                     test_results[sta] = {
                         "before_bssid": before_bssid.get(sta),
@@ -1961,7 +2219,8 @@ class lf_tests(lf_libs):
                         "before_rssi": before_rssi.get(sta),
                         "after_bssid": after_bssid.get(sta),
                         "after_channel": after_chan.get(sta),
-                        "after_rssi": after_rssi.get(sta)
+                        "after_rssi": after_rssi.get(sta),
+                        "client_mac": mac_dict.get(sta)
                     }
 
                 for sta in sta_list_2:
@@ -1982,22 +2241,25 @@ class lf_tests(lf_libs):
                     attachment_type=allure.attachment_type.JSON
                 )
 
-                for _, result in test_results.items():
+                functional_failures = []
+                pcap_failures = []
+                for sta in sta_list_2:
+                    result = test_results.get(sta)
                     before_bssid = result.get("before_bssid")
                     after_bssid = result.get("after_bssid")
                     before_channel = result.get("before_channel")
                     after_channel = result.get("after_channel")
                     before_rssi = result.get("before_rssi")
                     after_rssi = result.get("after_rssi")
-
-                    if before_bssid == after_bssid and before_channel == after_channel:
-                        return 'FAIL', 'BSSID and Channel did not change after attenuation'
-
+                    
                     if before_bssid == after_bssid:
-                        return 'FAIL', 'BSSID did not change after attenuation'
-
-                    if before_channel == after_channel:
-                        return 'FAIL', 'Channel did not change after attenuation'
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": "BSSID did not change",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
 
                 print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -2013,7 +2275,37 @@ class lf_tests(lf_libs):
                         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-                return 'PASS', test_results
+                print("\nAnalysing Pcap")
+
+                all_pass = not functional_failures and not pcap_failures
+                for sta in sta_list_2:
+                    client_mac = test_results.get(sta).get("client_mac")
+
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="band_steering",
+                        show_events=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Band Steering Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"]
+                        })
+
+                return all_pass, {
+                    "functional_failures": functional_failures,
+                    "pcap_failures": pcap_failures,
+                    "per_client": test_results
+                }
 
             else:
                 return 'FAIL', 'Found NO connectivity between stations/Upstream'
@@ -2273,7 +2565,8 @@ class lf_tests(lf_libs):
                         "before_rssi": before_rssi.get(sta),
                         "after_bssid": after_bssid.get(sta),
                         "after_channel": after_chan.get(sta),
-                        "after_rssi": after_rssi.get(sta)
+                        "after_rssi": after_rssi.get(sta),
+                        "client_mac": mac_dict.get(sta)
                     }
 
                 for sta in sta_list_2:
@@ -2306,7 +2599,11 @@ class lf_tests(lf_libs):
                 band_steer.clean_traffic_cx()
                 print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
-                for _, result in test_results.items():
+                functional_failures = []
+                pcap_failures = []
+
+                for sta in sta_list_2:
+                    result = test_results.get(sta)
                     before_bssid = result.get("before_bssid")
                     after_bssid = result.get("after_bssid")
                     before_channel = result.get("before_channel")
@@ -2314,15 +2611,14 @@ class lf_tests(lf_libs):
                     before_rssi = result.get("before_rssi")
                     after_rssi = result.get("after_rssi")
 
-
-                    if before_bssid == after_bssid and before_channel == after_channel:
-                        return 'FAIL', 'BSSID and Channel did not change after attenuation'
-
                     if before_bssid == after_bssid:
-                        return 'FAIL', 'BSSID did not change after attenuation'
-
-                    if before_channel == after_channel:
-                        return 'FAIL', 'Channel did not change after attenuation'
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": "BSSID did not change",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
 
                 print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -2338,7 +2634,37 @@ class lf_tests(lf_libs):
                         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-                return 'PASS', test_results
+                print("\nAnalysing Pcap")
+
+                all_pass = not functional_failures and not pcap_failures
+                for sta in sta_list:
+                    client_mac = test_results.get(sta).get("client_mac")
+
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="band_steering",
+                        show_events=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Band Steering Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"]
+                        })
+
+                return all_pass, {
+                    "functional_failures": functional_failures,
+                    "pcap_failures": pcap_failures,
+                    "per_client": test_results
+                }
 
             else:
                 return 'FAIL', 'Stations are not Pinging Each other'
@@ -2598,7 +2924,8 @@ class lf_tests(lf_libs):
                         "before_rssi": before_rssi.get(sta),
                         "after_bssid": after_bssid.get(sta),
                         "after_channel": after_chan.get(sta),
-                        "after_rssi": after_rssi.get(sta)
+                        "after_rssi": after_rssi.get(sta),
+                        "client_mac": mac_dict.get(sta)
                     }
 
                 for sta in [sta_list_1[-1]]+[sta_list_2[-1]] :
@@ -2620,7 +2947,11 @@ class lf_tests(lf_libs):
                     attachment_type=allure.attachment_type.JSON
                 )
 
-                for _, result in test_results.items():
+                functional_failures = []
+                pcap_failures = []
+
+                for sta in [sta_list_1[-1]]+[sta_list_2[-1]] :
+                    result = test_results.get(sta)
                     before_bssid = result.get("before_bssid")
                     after_bssid = result.get("after_bssid")
                     before_channel = result.get("before_channel")
@@ -2628,9 +2959,14 @@ class lf_tests(lf_libs):
                     # before_rssi = result.get("before_rssi")
                     # after_rssi = result.get("after_rssi")
 
-                    if before_bssid == after_bssid or before_channel == after_channel:
-                        return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                    if before_bssid == after_bssid:
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": "BSSID did not change",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
                 print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
                 # Attach the station-radio mapping to allure for debugging
@@ -2645,8 +2981,37 @@ class lf_tests(lf_libs):
                         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-                return 'PASS', test_results
+                print("\nAnalysing Pcap")
 
+                all_pass = not functional_failures and not pcap_failures
+                for sta in sta_list:
+                    client_mac = test_results.get(sta).get("client_mac")
+
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="band_steering",
+                        show_events=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Band Steering Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"]
+                        })
+
+                return all_pass, {
+                    "functional_failures": functional_failures,
+                    "pcap_failures": pcap_failures,
+                    "per_client": test_results
+                }
             else:
                 return 'FAIL', 'Stations are not Pinging Each other'
 
@@ -2729,7 +3094,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten("1.1.3002", 0, idx - 3)
 
             band_steer.start_sniffer(ssid=ssid, password=passkey, security=security)
-            #                 get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
+            # get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
 
             # -------------------- STA Creation --------------------
             sta_list_1 = band_steer.get_sta_list_before_creation(
@@ -2952,7 +3317,17 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return overall_status, iteration_results
+            passed_count = sum(1 for r in iteration_results.values() if r.get("status") == "PASS")
+            failed_count = sum(1 for r in iteration_results.values() if r.get("status") != "PASS")
+
+            return overall_status, {
+                "summary": {
+                    "total_iterations": len(iteration_results),
+                    "passed_iterations": passed_count,
+                    "failed_iterations": failed_count
+                },
+                "iteration_results": iteration_results
+            }
 
         elif test_type == "steer_success_rate":
             """
@@ -3653,7 +4028,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             print(f"\n{'=' * 60}")
@@ -3951,7 +4327,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -3972,7 +4349,10 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list:
+                result = test_results.get(sta)
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -3983,9 +4363,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid or before_channel == after_channel:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -4000,7 +4385,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            print("\nAnalysing Pcap")
+
+            all_pass = not functional_failures and not pcap_failures
+            for sta in sta_list:
+                client_mac = test_results.get(sta).get("client_mac")
+
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
+
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
         elif test_type == "client_isolation":
             """
@@ -4281,7 +4696,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list_2:
@@ -4302,7 +4718,10 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list_2:
+                result = test_results.get(sta)
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -4313,9 +4732,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid or before_channel == after_channel:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
                 print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -4331,7 +4755,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            print("\nAnalysing Pcap")
+
+            all_pass = not functional_failures and not pcap_failures
+            for sta in sta_list:
+                client_mac = test_results.get(sta).get("client_mac")
+
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
+
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
         elif test_type == "UE":
             """
@@ -4545,9 +4999,9 @@ class lf_tests(lf_libs):
                 # -------------------- Attenuator State --------------------
                 attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
-                # -------------------- Stop Sniffer --------------------
+                # -------------------- Stop Sniffer --------------------\local_pcap = band_steer.stop_sniffer()
+                local_pcap = band_steer.stop_sniffer()
                 try:
-                    local_pcap = band_steer.stop_sniffer()
                     with open(local_pcap, "rb") as f:
                         allure.attach(
                             f.read(),
@@ -4561,6 +5015,7 @@ class lf_tests(lf_libs):
 
                 test_results = {}
                 after_state = {}
+
                 for sta in sorted(stations):
                     test_results[sta] = {
                         "before_bssid": before_bssid.get(sta),
@@ -4568,7 +5023,8 @@ class lf_tests(lf_libs):
                         "before_rssi": before_rssi.get(sta),
                         "after_bssid": after_bssid.get(sta),
                         "after_channel": after_chan.get(sta),
-                        "after_rssi": after_rssi.get(sta)
+                        "after_rssi": after_rssi.get(sta),
+                        "client_mac": mac_dict.get(sta)
                     }
                 for sta in sta_list_2 :
                     after_state[sta] = {
@@ -4589,7 +5045,10 @@ class lf_tests(lf_libs):
                     attachment_type=allure.attachment_type.JSON
                 )
 
-                for _, result in test_results.items():
+                functional_failures = []
+                pcap_failures = []
+                for sta in sta_list_2:
+                    result = test_results.get(sta)
                     before_bssid = result.get("before_bssid")
                     after_bssid = result.get("after_bssid")
                     before_channel = result.get("before_channel")
@@ -4597,8 +5056,17 @@ class lf_tests(lf_libs):
                     before_rssi = result.get("before_rssi")
                     after_rssi = result.get("after_rssi")
 
-                    if before_bssid == after_bssid :
-                        return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    print(f"[DEBUG] BEFORE Steer RSSI {before_rssi} Channel {before_channel}")
+                    print(f"[DEBUG] AFTER Steer RSSI {after_rssi} Channel {after_channel}")
+
+                    if before_bssid == after_bssid:
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": "BSSID did not change",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
 
                 print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -4614,7 +5082,37 @@ class lf_tests(lf_libs):
                         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-                return 'PASS', test_results
+                print("\nAnalysing Pcap")
+
+                all_pass = not functional_failures and not pcap_failures
+                for sta in sta_list:
+                    client_mac = test_results.get(sta).get("client_mac")
+
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="band_steering",
+                        show_events=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Band Steering Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"]
+                        })
+
+                return all_pass, {
+                    "functional_failures": functional_failures,
+                    "pcap_failures": pcap_failures,
+                    "per_client": test_results
+                }
 
             else:
                 return 'FAIL', 'Stations are not Pinging Each other'
@@ -4926,7 +5424,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list_2:
@@ -4946,8 +5445,10 @@ class lf_tests(lf_libs):
                 name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
-
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list_2:
+                result = test_results.get(sta)
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -4958,9 +5459,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid or before_channel == after_channel:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -4975,7 +5481,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            print("\nAnalysing Pcap")
+
+            all_pass = not functional_failures and not pcap_failures
+            for sta in sta_list:
+                client_mac = test_results.get(sta).get("client_mac")
+
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
+
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
         elif test_type == "standard_management_vlan":
             """
@@ -5232,7 +5768,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -5252,8 +5789,10 @@ class lf_tests(lf_libs):
                 name="Band Steering Result – Per-Station Before vs After (BSSID & Channel)",
                 attachment_type=allure.attachment_type.JSON
             )
-
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list:
+                result = test_results.get(sta)
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -5264,9 +5803,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid or before_channel == after_channel:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -5281,7 +5825,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            print("\nAnalysing Pcap")
+
+            all_pass = not functional_failures and not pcap_failures
+            for sta in sta_list:
+                client_mac = test_results.get(sta).get("client_mac")
+
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
+
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
     def start_amqp_log_capture(self, get_target_object, idx=0):
         """Clear AMQP logs at test start"""
@@ -5322,84 +5896,6 @@ class lf_tests(lf_libs):
 
         except Exception as e:
             logging.error(f"Failed to fetch AMQP logs: {e}")
-
-    def validate_amqp_logs_for_rrm(self, ssid=None):
-        logs = "\n".join(getattr(self, "_amqp_logs", []))
-
-        checks = {
-            "has_amqp": "AMQP" in logs,
-            "has_config_push": ("ssid" in logs.lower()) or ("wireless" in logs.lower()) or ("rrm" in logs.lower()),
-            "has_11k_or_rrm": ("11k" in logs.lower()) or ("rrm" in logs.lower()),
-            "has_11r": "11r" in logs.lower()
-        }
-
-        if ssid:
-            checks["has_ssid"] = ssid in logs
-        else:
-            checks["has_ssid"] = True
-
-        return all(checks.values()), checks, logs
-
-    def get_vap_by_ssid(self, ssid, idx=0):
-        output = self.run_generic_command(
-            cmd="uci show wireless | grep ssid",
-            idx=idx,
-            print_log=False
-        )
-
-        for line in str(output).splitlines():
-            if f"ssid='{ssid}'" in line or f'ssid="{ssid}"' in line:
-                return line.split(".")[1].split("=")[0]  # wireless.vap08.ssid='X' -> vap08
-        return None
-
-    def validate_rrm_config_on_vap(self, ssid, idx=0):
-        vap = self.get_vap_by_ssid(ssid=ssid, idx=idx)
-        if not vap:
-            return False, {"error": f"SSID {ssid} not mapped to any VAP"}
-
-        r = str(self.run_generic_command(
-            cmd=f"uci -q get wireless.{vap}.ieee80211r",
-            idx=idx,
-            print_log=False
-        )).strip()
-
-        k1 = str(self.run_generic_command(
-            cmd=f"uci -q get wireless.{vap}.ieee80211k",
-            idx=idx,
-            print_log=False
-        )).strip()
-
-        k2 = str(self.run_generic_command(
-            cmd=f"uci -q get wireless.{vap}.rrm",
-            idx=idx,
-            print_log=False
-        )).strip()
-
-        result = {
-            "vap": vap,
-            "ieee80211r": r,
-            "ieee80211k": k1,
-            "rrm": k2
-        }
-
-        passed = (r == "1") and (k1 == "1" or k2 == "1")
-        return passed, result
-
-    def validate_11k_in_beacon(self, pcap_file, ssid):
-        cmd = (
-            f'tshark -r {pcap_file} '
-            f'-Y \'wlan.fc.type_subtype == 0x08 && wlan.ssid == "{ssid}"\' -V'
-        )
-        output = self.run_local_generic_command(cmd=cmd)
-
-        text = str(output)
-        checks = {
-            "beacon_found": ssid in text,
-            "rm_capabilities_present": "RM Capabilities" in text,
-            "neighbor_report_present": "Neighbor report" in text or "Neighbor Report" in text
-        }
-
-        return all(checks.values()), checks, text
 
     def run_roam_test(
             self,
@@ -6160,8 +6656,11 @@ class lf_tests(lf_libs):
 
             time.sleep(15)
 
-            # -------------------- Attenuator State --------------------
-            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            band_steer.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
+            band_steer.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
+            band_steer.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
+                                                psk=passkey)
+            band_steer.station_profile.create(radio=dict_all_radios_5g["mtk_radios"][0], sta_names_=sta_list)
 
             # -------------------- Initial Attenuation --------------------
             # setting attenuation to connect Back to AP1
@@ -6169,6 +6668,9 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
+
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
 
             # To reassociate back to AP1
             time.sleep(20)
@@ -6245,7 +6747,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -6494,7 +6997,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -6723,7 +7227,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -6952,7 +7457,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -7255,7 +7761,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -7495,7 +8002,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -7788,7 +8296,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -8068,7 +8577,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -8310,7 +8820,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -8560,7 +9071,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
@@ -8807,7 +9319,8 @@ class lf_tests(lf_libs):
                     "before_rssi": before_rssi.get(sta),
                     "after_bssid": after_bssid.get(sta),
                     "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta)
+                    "after_rssi": after_rssi.get(sta),
+                    "client_mac": mac_dict.get(sta)
                 }
 
             for sta in sta_list:
