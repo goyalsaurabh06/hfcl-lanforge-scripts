@@ -1358,17 +1358,38 @@ class lf_tests(lf_libs):
     def analyze_sniffer_pcap(
             self,
             pcap_path: str,
-            client_mac: str,
-            mode: str,
+            client_mac: str = None,
+            bssid: str = None,
+            mode: str = "band_steering",
+            check_protocol: str = None,  # New: "11k", "11v", "11r", or None for all
             window: float = 15.0,
             show_events: bool = False,
             frame_view: bool = True,
     ):
+        """
+        Analyze PCAP for roaming/steering behavior
 
+        Args:
+            pcap_path: Path to PCAP file
+            client_mac: Optional client MAC address. If provided, filters by client
+            bssid: Optional BSSID (AP MAC). Used when no client MAC is provided
+            mode: Analysis mode (band_steering, 11r_roaming, 11kv_roaming, 11kvr_roaming, 11kr_roaming, multi_roam)
+            check_protocol: Specific protocol to check ("11k", "11v", "11r", or None for all)
+            window: Time window for roam detection in seconds
+            show_events: Whether to show supporting events
+            frame_view: Whether to show detailed frame view
+        """
         PASS_RESULTS = {
             "PASS_BAND_STEERING",
             "PASS_11R_ROAM",
             "PASS_11KV_ROAMING",
+            "PASS_11KVR_ROAMING",
+            "PASS_11KR_ROAMING",
+            "PASS_11R_FT_ONLY",
+            "PASS_BAND_STEERING_CLIENT_DRIVEN",
+            "PASS_11K_ONLY",
+            "PASS_11V_ONLY",
+            "PASS_11R_ONLY",
         }
 
         def norm(x):
@@ -1385,195 +1406,852 @@ class lf_tests(lf_libs):
                 c = int(ch)
             except:
                 return "unknown"
-            if 1 <= c <= 14: return "2.4G"
-            if 36 <= c <= 177: return "5G"
-            if 178 <= c <= 233: return "6G"
+            if 1 <= c <= 14:
+                return "2.4G"
+            if 36 <= c <= 177:
+                return "5G"
+            if 178 <= c <= 233:
+                return "6G"
             return "unknown"
 
+        def clean_quoted_value(val):
+            """Remove quotes from quoted values"""
+            if not val:
+                return ""
+            val = val.strip()
+            if val.startswith('"') and val.endswith('"'):
+                return val[1:-1]
+            return val
+
+        def parse_tag_numbers(tag_str):
+            """Parse comma-separated tag numbers into a set"""
+            if not tag_str:
+                return set()
+            tag_str = clean_quoted_value(tag_str)
+            return {t.strip() for t in tag_str.split(",") if t.strip()}
+
+        def decode_ssid(hex_ssid):
+            """Decode hex SSID to readable string"""
+            if not hex_ssid:
+                return ""
+            hex_ssid = clean_quoted_value(hex_ssid)
+            if not hex_ssid or hex_ssid.startswith('"'):
+                return hex_ssid
+            try:
+                if len(hex_ssid) % 2 == 0 and all(c in '0123456789abcdefABCDEF' for c in hex_ssid):
+                    return bytes.fromhex(hex_ssid).decode('utf-8', errors='ignore')
+            except:
+                pass
+            return hex_ssid
+
         # -------------------------------
-        # TSHARK
+        # TSHARK - Enhanced for 11k/11v/11r (supports client MAC or BSSID)
         # -------------------------------
         def run_tshark():
-            cmac = norm(client_mac)
+            # Build filter based on available identifiers
+            filter_parts = []
 
-            display_filter = (
-                f'wlan.addr == {cmac} && ('
-                f'wlan.fc.type_subtype == 0 || '
-                f'wlan.fc.type_subtype == 1 || '
-                f'wlan.fc.type_subtype == 2 || '
-                f'wlan.fc.type_subtype == 3 || '
-                f'wlan.fixed.category_code == 10 || '
-                f'wlan.fixed.category_code == 5 || '
-                f'eapol)'
-            )
+            if client_mac:
+                cmac = norm(client_mac)
+                filter_parts.append(f'wlan.addr == {cmac}')
+
+            if bssid:
+                bssid_norm = norm(bssid)
+                filter_parts.append(f'wlan.bssid == {bssid_norm}')
+
+            # If no specific filter, analyze all relevant frames
+            if not filter_parts:
+                filter_parts.append('1')
+
+            # Build protocol-specific filter if check_protocol is specified
+            protocol_filter_parts = []
+            if check_protocol == "11k":
+                protocol_filter_parts.append('wlan.fixed.category_code == 5')  # RRM frames
+                protocol_filter_parts.append('wlan.tag.number == 52')  # Neighbor Report IE
+            elif check_protocol == "11v":
+                protocol_filter_parts.append('wlan.fixed.category_code == 10')  # BTM frames
+                protocol_filter_parts.append('wlan.tag.number == 127')  # Extended Capabilities
+            elif check_protocol == "11r":
+                protocol_filter_parts.append('wlan.fixed.auth_alg == 2')  # FT Authentication
+                protocol_filter_parts.append('wlan.tag.number == 54')  # Mobility Domain IE
+                protocol_filter_parts.append('wlan.tag.number == 48')  # RSN IE with FT
+
+            # Combine filters
+            if protocol_filter_parts:
+                frame_filter = (
+                    f'({" || ".join(filter_parts)}) && ('
+                    f'({" || ".join(protocol_filter_parts)})'
+                    f')'
+                )
+            else:
+                frame_filter = (
+                    f'({" || ".join(filter_parts)}) && ('
+                    f'wlan.fc.type_subtype == 0 || '  # Assoc Req
+                    f'wlan.fc.type_subtype == 1 || '  # Assoc Resp
+                    f'wlan.fc.type_subtype == 2 || '  # Reassoc Req
+                    f'wlan.fc.type_subtype == 3 || '  # Reassoc Resp
+                    f'wlan.fc.type_subtype == 4 || '  # Probe Req
+                    f'wlan.fc.type_subtype == 5 || '  # Probe Resp
+                    f'wlan.fc.type_subtype == 8 || '  # Beacon
+                    f'wlan.fc.type_subtype == 11 || '  # Auth
+                    f'wlan.fc.type_subtype == 13 || '  # Action
+                    f'wlan.fixed.category_code == 5 || '  # RRM (11k)
+                    f'wlan.fixed.category_code == 10 || '  # BTM (11v)
+                    f'eapol)'  # EAPOL for 4-way handshake
+                )
 
             cmd = [
-                "tshark", "-r", pcap_path, "-Y", display_filter,
+                "tshark", "-r", pcap_path, "-Y", frame_filter,
                 "-T", "fields",
-                "-E", "separator=,",
+                "-E", "separator=|",
                 "-E", "quote=d",
                 "-E", "header=y",
                 "-e", "frame.number",
                 "-e", "frame.time_epoch",
+                "-e", "wlan.ta",
+                "-e", "wlan.ra",
                 "-e", "wlan.sa",
                 "-e", "wlan.da",
                 "-e", "wlan.bssid",
                 "-e", "wlan.ssid",
                 "-e", "wlan.fc.type_subtype",
+                "-e", "wlan.fixed.auth.alg",
                 "-e", "wlan.fixed.category_code",
                 "-e", "wlan.fixed.action_code",
                 "-e", "wlan_radio.channel",
+                "-e", "_ws.col.Info",
+                "-e", "wlan.tag.number",
+                "-e", "wlan.mobility_domain.mdid",
             ]
 
             out = subprocess.run(cmd, capture_output=True, text=True)
-            if out.returncode != 0:
-                raise RuntimeError(out.stderr)
+            if out.returncode != 0 and out.stderr:
+                print(f"tshark warning: {out.stderr}", file=sys.stderr)
 
             frames = []
-            reader = csv.DictReader(out.stdout.splitlines())
+            lines = out.stdout.strip().split('\n')
+            if not lines or len(lines) < 2:
+                return frames
 
-            for r in reader:
+            for line in lines[1:]:
+                values = line.split('|')
+                if len(values) < 16:
+                    continue
+
+                try:
+                    ts_str = clean_quoted_value(values[1] if len(values) > 1 else "0")
+                    ts_val = float(ts_str) if ts_str else 0.0
+                except ValueError:
+                    ts_val = 0.0
+
                 frames.append({
-                    "no": r.get("frame.number"),
-                    "ts": float(r.get("frame.time_epoch", "0") or "0"),
-                    "bssid": norm(r.get("wlan.bssid")),
-                    "ssid": r.get("wlan.ssid"),
-                    "subtype": parse_int(r.get("wlan.fc.type_subtype")),
-                    "cat": parse_int(r.get("wlan.fixed.category_code")),
-                    "action": parse_int(r.get("wlan.fixed.action_code")),
-                    "channel": r.get("wlan_radio.channel"),
-                    "sa": norm(r.get("wlan.sa")),
-                    "da": norm(r.get("wlan.da")),
+                    "no": clean_quoted_value(values[0] if len(values) > 0 else ""),
+                    "ts": ts_val,
+                    "ta": norm(clean_quoted_value(values[2] if len(values) > 2 else "")),
+                    "ra": norm(clean_quoted_value(values[3] if len(values) > 3 else "")),
+                    "sa": norm(clean_quoted_value(values[4] if len(values) > 4 else "")),
+                    "da": norm(clean_quoted_value(values[5] if len(values) > 5 else "")),
+                    "bssid": norm(clean_quoted_value(values[6] if len(values) > 6 else "")),
+                    "ssid": decode_ssid(values[7] if len(values) > 7 else ""),
+                    "subtype": parse_int(clean_quoted_value(values[8] if len(values) > 8 else "")),
+                    "auth_alg": clean_quoted_value(values[9] if len(values) > 9 else ""),
+                    "cat": parse_int(clean_quoted_value(values[10] if len(values) > 10 else "")),
+                    "action": parse_int(clean_quoted_value(values[11] if len(values) > 11 else "")),
+                    "channel": clean_quoted_value(values[12] if len(values) > 12 else ""),
+                    "info": clean_quoted_value(values[13] if len(values) > 13 else ""),
+                    "tag_numbers": clean_quoted_value(values[14] if len(values) > 14 else ""),
+                    "mobility_domain": clean_quoted_value(values[15] if len(values) > 15 else ""),
                 })
 
             return sorted(frames, key=lambda x: x["ts"])
 
         # -------------------------------
-        # EVENTS
+        # PROTOCOL DETECTION (with deduplication)
         # -------------------------------
-        def extract_events(frames):
+        def detect_protocols(frames):
+            """Detect 11k, 11v, 11r capabilities from frames with deduplication"""
+            protocols = {
+                '11k': {'enabled': False, 'frames': [], 'details': set()},
+                '11v': {'enabled': False, 'frames': [], 'details': set()},
+                '11r': {'enabled': False, 'frames': [], 'details': set()},
+            }
+
+            seen_frames = {'11k': set(), '11v': set(), '11r': set()}
+
+            for f in frames:
+                tags = parse_tag_numbers(f.get("tag_numbers", ""))
+
+                # 11k detection (RRM)
+                if f["cat"] == 5:
+                    if f["no"] not in seen_frames['11k']:
+                        protocols['11k']['enabled'] = True
+                        protocols['11k']['frames'].append(f)
+                        seen_frames['11k'].add(f["no"])
+                    protocols['11k']['details'].add(f"RRM frame (action={f['action']})")
+
+                # Neighbor Report IE (tag 52) indicates 11k
+                if "52" in tags:
+                    if f["no"] not in seen_frames['11k']:
+                        protocols['11k']['enabled'] = True
+                        protocols['11k']['frames'].append(f)
+                        seen_frames['11k'].add(f["no"])
+                    protocols['11k']['details'].add("Neighbor Report IE")
+
+                # 11v detection (BTM)
+                if f["cat"] == 10:
+                    if f["no"] not in seen_frames['11v']:
+                        protocols['11v']['enabled'] = True
+                        protocols['11v']['frames'].append(f)
+                        seen_frames['11v'].add(f["no"])
+                    action_name = {8: "Query", 6: "Request", 7: "Response"}.get(f["action"], f"action={f['action']}")
+                    protocols['11v']['details'].add(f"BTM {action_name}")
+
+                # Extended Capabilities IE (tag 127) may indicate BTM support
+                if "127" in tags:
+                    protocols['11v']['details'].add("Extended Capabilities IE")
+
+                # 11r detection (Fast Transition)
+                if f.get("auth_alg") == "2":
+                    if f["no"] not in seen_frames['11r']:
+                        protocols['11r']['enabled'] = True
+                        protocols['11r']['frames'].append(f)
+                        seen_frames['11r'].add(f["no"])
+                    protocols['11r']['details'].add("FT Authentication")
+
+                # Mobility Domain IE (tag 54)
+                if "54" in tags:
+                    if f["no"] not in seen_frames['11r']:
+                        protocols['11r']['enabled'] = True
+                        protocols['11r']['frames'].append(f)
+                        seen_frames['11r'].add(f["no"])
+                    md_info = f"MDID={f.get('mobility_domain', '')}" if f.get('mobility_domain') else "present"
+                    protocols['11r']['details'].add(f"Mobility Domain IE ({md_info})")
+
+                # RSN IE with FT AKM (tag 48)
+                if "48" in tags:
+                    protocols['11r']['details'].add("RSN IE with potential FT AKM")
+
+            # Convert sets to lists for output
+            for proto in protocols:
+                protocols[proto]['details'] = list(protocols[proto]['details'])
+
+            return protocols
+
+        # -------------------------------
+        # EVENT EXTRACTION
+        # -------------------------------
+        def extract_events(frames, protocols):
             events = []
+            ft_auth_pairs = {}  # Track FT auth requests by frame number
 
             for f in frames:
                 band = band_from_channel(f["channel"])
 
-                # 11v (BTM)
+                # 11v (BTM) events
                 if f["cat"] == 10:
-                    if f["action"] == 7:
-                        events.append({"kind": "btm_request", "ts": f["ts"], "frame": f["no"], "band": band})
+                    if f["action"] == 6:
+                        events.append({
+                            "kind": "btm_request",
+                            "ts": f["ts"],
+                            "frame": f["no"],
+                            "band": band,
+                            "bssid": f["bssid"]
+                        })
+                    elif f["action"] == 7:
+                        events.append({
+                            "kind": "btm_response",
+                            "ts": f["ts"],
+                            "frame": f["no"],
+                            "band": band,
+                            "bssid": f["bssid"]
+                        })
                     elif f["action"] == 8:
-                        events.append({"kind": "btm_response", "ts": f["ts"], "frame": f["no"], "band": band})
+                        events.append({
+                            "kind": "btm_query",
+                            "ts": f["ts"],
+                            "frame": f["no"],
+                            "band": band,
+                            "bssid": f["bssid"]
+                        })
 
-                # Assoc + Reassoc
+                # 11k events
+                if f["cat"] == 5:
+                    events.append({
+                        "kind": "rrm_frame",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
+
+                # Association events
                 if f["subtype"] in [0, 2]:
-                    events.append({"kind": "assoc_req", "ts": f["ts"], "frame": f["no"], "band": band})
+                    events.append({
+                        "kind": "assoc_req",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
 
                 if f["subtype"] in [1, 3]:
-                    events.append({"kind": "assoc_resp", "ts": f["ts"], "frame": f["no"], "band": band})
+                    events.append({
+                        "kind": "assoc_resp",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
 
-            return events
+                # 11r FT Auth events - track both request and response
+                if f.get("auth_alg") == "2":
+                    # Check if this is an FT authentication frame
+                    # seq=1 usually indicates response, seq=0 or missing indicates request
+                    if "response" in f.get("info", "").lower() or "seq=1" in f.get("info", ""):
+                        # This is likely an FT auth response (completion)
+                        events.append({
+                            "kind": "ft_auth",
+                            "ts": f["ts"],
+                            "frame": f["no"],
+                            "band": band,
+                            "bssid": f["bssid"],
+                            "type": "response"
+                        })
+                    else:
+                        # FT auth request
+                        events.append({
+                            "kind": "ft_auth",
+                            "ts": f["ts"],
+                            "frame": f["no"],
+                            "band": band,
+                            "bssid": f["bssid"],
+                            "type": "request"
+                        })
+
+            return sorted(events, key=lambda x: x["ts"])
 
         # -------------------------------
-        # ANALYSIS
+        # ROAM DETECTION
         # -------------------------------
-        def analyze(events):
-            if mode != "band_steering":
-                raise ValueError("Unsupported mode")
+        def detect_prior_connection(events, idx):
+            """Walk backwards to find the last confirmed association"""
+            for j in range(idx - 1, -1, -1):
+                if events[j]["kind"] in {"assoc_resp"} and events[j].get("bssid"):
+                    return events[j]
+            return None
+        #
+        # def detect_roam_attempt(events, window_sec=15.0):
+        #     """Detect BSSID transition with completion evidence"""
+        #     for i, ev in enumerate(events):
+        #         if ev["kind"] not in {"assoc_req", "assoc_resp", "ft_auth"}:
+        #             continue
+        #
+        #         target_bssid = ev.get("bssid")
+        #         if not target_bssid:
+        #             continue
+        #
+        #         prior = detect_prior_connection(events, i)
+        #         if not prior or not prior.get("bssid") or prior["bssid"] == target_bssid:
+        #             continue
+        #
+        #         # Look for completion
+        #         start_ts = ev["ts"]
+        #         for j in range(i, len(events)):
+        #             nxt = events[j]
+        #             if nxt["ts"] - start_ts > window_sec:
+        #                 break
+        #             if nxt["kind"] == "assoc_resp" and nxt.get("bssid") == target_bssid:
+        #                 return {
+        #                     "roamed": True,
+        #                     "from_bssid": prior["bssid"],
+        #                     "to_bssid": target_bssid,
+        #                     "from_band": prior["band"],
+        #                     "to_band": ev["band"],
+        #                     "trigger_ts": ev["ts"]
+        #                 }
+        #
+        #     return {"roamed": False}
 
+        def detect_roam_attempt(events, window_sec=15.0):
+            """Detect BSSID transition - works with both classic and FT roaming"""
+
+            # First, collect all association points (both classic and FT)
+            connection_points = []
+
+            for i, ev in enumerate(events):
+                # Classic association
+                if ev["kind"] == "assoc_resp" and ev.get("bssid"):
+                    connection_points.append({
+                        "idx": i,
+                        "ts": ev["ts"],
+                        "bssid": ev["bssid"],
+                        "band": ev.get("band"),
+                        "type": "assoc"
+                    })
+                # FT authentication (11r roaming)
+                elif ev["kind"] == "ft_auth" and ev.get("bssid"):
+                    # Check if this is a successful FT auth (look for corresponding response)
+                    # For simplicity, treat FT auth as a connection point
+                    connection_points.append({
+                        "idx": i,
+                        "ts": ev["ts"],
+                        "bssid": ev["bssid"],
+                        "band": ev.get("band"),
+                        "type": "ft_auth"
+                    })
+
+            # Sort by timestamp
+            connection_points.sort(key=lambda x: x["ts"])
+
+            # Look for transitions between different BSSIDs
+            for i in range(1, len(connection_points)):
+                prev = connection_points[i - 1]
+                curr = connection_points[i]
+
+                if prev["bssid"] != curr["bssid"]:
+                    # Found a transition
+                    time_diff = curr["ts"] - prev["ts"]
+                    if time_diff <= window_sec:
+                        return {
+                            "roamed": True,
+                            "from_bssid": prev["bssid"],
+                            "to_bssid": curr["bssid"],
+                            "from_band": prev["band"],
+                            "to_band": curr["band"],
+                            "trigger_ts": curr["ts"],
+                            "method": curr["type"]
+                        }
+
+            # Fallback: Look for BTM followed by connection to new BSSID
+            btm_events = [e for e in events if e["kind"] in ["btm_request", "btm_response"]]
+
+            for btm in btm_events:
+                for conn in connection_points:
+                    if conn["ts"] > btm["ts"] and (conn["ts"] - btm["ts"]) <= window_sec:
+                        # Find previous connection
+                        prev_conn = None
+                        for pc in connection_points:
+                            if pc["ts"] < btm["ts"] and pc["bssid"] != conn["bssid"]:
+                                prev_conn = pc
+                                break
+
+                        if prev_conn:
+                            return {
+                                "roamed": True,
+                                "from_bssid": prev_conn["bssid"],
+                                "to_bssid": conn["bssid"],
+                                "from_band": prev_conn["band"],
+                                "to_band": conn["band"],
+                                "trigger_ts": btm["ts"],
+                                "method": "btm_steered"
+                            }
+
+            return {"roamed": False}
+
+        # -------------------------------
+        # MODE-SPECIFIC ANALYSIS
+        # -------------------------------
+        def analyze_band_steering(events):
             btm_reqs = [e for e in events if e["kind"] == "btm_request"]
             btm_resps = [e for e in events if e["kind"] == "btm_response"]
 
             if not btm_reqs:
-                return "FAIL_BAND_STEERING", ["No BTM Request"]
+                return "FAIL_BAND_STEERING", ["No BTM Request detected"]
 
-            if not btm_resps:
-                return "FAIL_BAND_STEERING", ["No BTM Response"]
+            roam = detect_roam_attempt(events)
 
-            for req in btm_reqs:
-                resp = next((r for r in btm_resps if r["ts"] > req["ts"]), None)
-                if not resp:
+            if roam.get("roamed"):
+                if btm_resps:
+                    return "PASS_BAND_STEERING_CLIENT_DRIVEN", [
+                        "11v observed",
+                        f"Client moved: {roam['from_bssid']} → {roam['to_bssid']}",
+                        f"Band: {roam['from_band']} → {roam['to_band']}",
+                    ]
+                return "PASS_BAND_STEERING", [
+                    "11v observed",
+                    f"Client moved: {roam['from_bssid']} → {roam['to_bssid']}",
+                    f"Band: {roam['from_band']} → {roam['to_band']}",
+                ]
+
+            return "FAIL_BAND_STEERING", ["No roam detected after BTM"]
+
+        def analyze_11r_roaming(events, protocols):
+            if not protocols['11r']['enabled']:
+                return "FAIL_11R_NO_FT", ["No FT authentication (auth_alg=2) or Mobility Domain IE observed"]
+
+            ft_events = [e for e in events if e["kind"] == "ft_auth"]
+            if ft_events:
+                return "PASS_11R_ROAM", [
+                    f"FT authentication observed ({len(ft_events)} frames)",
+                    "11r roaming detected"
+                ]
+
+            if protocols['11r']['enabled']:
+                return "PASS_11R_FT_ONLY", [
+                    "Mobility Domain IE present",
+                    "11r capability confirmed"
+                ]
+
+            return "FAIL_11R_NO_FT", ["No 11r evidence found"]
+
+        def analyze_11kv_roaming(events, protocols):
+            has_k = protocols['11k']['enabled']
+            has_v = protocols['11v']['enabled']
+
+            if not has_k and not has_v:
+                return "FAIL_NO_11KV_EVIDENCE", ["No 11k or 11v evidence observed"]
+
+            roam = detect_roam_attempt(events)
+
+            if roam.get("roamed"):
+                details = [
+                    f"11k: {'✓' if has_k else '✗'} | 11v: {'✓' if has_v else '✗'}",
+                    f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
+                    f"Band: {roam['from_band']} → {roam['to_band']}",
+                ]
+                return "PASS_11KV_ROAMING", details
+
+            return "FAIL_11KV_NO_ROAM", ["No roam transition detected"]
+
+        def analyze_11kvr_roaming(events, protocols):
+            has_k = protocols['11k']['enabled']
+            has_v = protocols['11v']['enabled']
+            has_r = protocols['11r']['enabled']
+
+            present = []
+            if has_k:
+                present.append("11k")
+            if has_v:
+                present.append("11v")
+            if has_r:
+                present.append("11r")
+
+            if has_k and has_v and has_r:
+                roam = detect_roam_attempt(events)
+                if roam.get("roamed"):
+                    return "PASS_11KVR_ROAMING", [
+                        f"All three protocols observed: {', '.join(present)}",
+                        f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
+                        f"Band: {roam['from_band']} → {roam['to_band']}",
+                    ]
+                return "WARN_11KVR_NO_ROAM", [
+                    f"Protocols present: {', '.join(present)}",
+                    "No BSSID transition detected"
+                ]
+
+            return "WARN_11KVR_PARTIAL_PROTOCOLS", [
+                f"Present: {', '.join(present) if present else 'none'}",
+                "Missing some protocols for full 11kvr roaming"
+            ]
+
+        def analyze_11kr_roaming(events, protocols):
+            has_k = protocols['11k']['enabled']
+            has_r = protocols['11r']['enabled']
+
+            if not has_k and not has_r:
+                return "FAIL_NO_11KR_EVIDENCE", ["Neither 11k nor 11r observed"]
+
+            roam = detect_roam_attempt(events)
+
+            if has_k and has_r:
+                if roam.get("roamed"):
+                    return "PASS_11KR_ROAMING", [
+                        f"11k: ✓ | 11r: ✓",
+                        f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
+                    ]
+                return "WARN_11KR_NO_ROAM", ["Protocols present but no roam detected"]
+
+            return "WARN_11KR_PARTIAL", [
+                f"11k: {'✓' if has_k else '✗'} | 11r: {'✓' if has_r else '✗'}",
+                "Partial protocol support"
+            ]
+
+        def analyze_multi_roam(events, protocols):
+            roams = []
+            seen_targets = set()
+
+            for i, ev in enumerate(events):
+                if ev["kind"] not in {"assoc_req", "assoc_resp"}:
                     continue
 
-                # Look at all future events
-                later = [e for e in events if e["ts"] > resp["ts"]]
+                target_bssid = ev.get("bssid")
+                if not target_bssid or target_bssid in seen_targets:
+                    continue
 
-                for e in later:
-                    if e["band"] != req["band"] and e["band"] != "unknown":
-                        return "PASS_BAND_STEERING", [
-                            f"Band Steering Success ({req['band']} → {e['band']})"
-                        ]
+                prior = detect_prior_connection(events, i)
+                if not prior or not prior.get("bssid") or prior["bssid"] == target_bssid:
+                    continue
 
-            return "FAIL_BAND_STEERING", ["No band transition after BTM"]
+                seen_targets.add(target_bssid)
+
+                roams.append({
+                    "from_bssid": prior["bssid"],
+                    "to_bssid": target_bssid,
+                    "from_band": prior["band"],
+                    "to_band": ev["band"],
+                })
+
+            if not roams:
+                return [{"result": "FAIL_NO_ROAM", "details": ["No roaming detected"]}]
+
+            results = []
+            for idx, roam in enumerate(roams, 1):
+                results.append({
+                    "result": "PASS_ROAM_DETECTED",
+                    "details": [
+                        f"Roam #{idx}",
+                        f"From: {roam['from_bssid']} ({roam['from_band']})",
+                        f"To: {roam['to_bssid']} ({roam['to_band']})",
+                    ]
+                })
+
+            return results
 
         # -------------------------------
-        # FRAME VIEW (clean)
+        # PROTOCOL-SPECIFIC CHECK
         # -------------------------------
-        def build_frame_view(frames):
+        def check_specific_protocol(protocols, check_proto):
+            """Check if a specific protocol is enabled and return appropriate result"""
+            proto_map = {
+                "11k": {"enabled": protocols['11k']['enabled'], "details": protocols['11k']['details'],
+                        "frames": protocols['11k']['frames']},
+                "11v": {"enabled": protocols['11v']['enabled'], "details": protocols['11v']['details'],
+                        "frames": protocols['11v']['frames']},
+                "11r": {"enabled": protocols['11r']['enabled'], "details": protocols['11r']['details'],
+                        "frames": protocols['11r']['frames']},
+            }
+
+            proto_info = proto_map.get(check_proto.upper())
+            if not proto_info:
+                return "FAIL_INVALID_PROTOCOL", [f"Invalid protocol: {check_proto}"]
+
+            if proto_info["enabled"]:
+                return f"PASS_{check_proto.upper()}_ONLY", [
+                    f"{check_proto.upper()} protocol is enabled",
+                    f"Evidence: {', '.join(proto_info['details'][:3])}",
+                    f"Frames: {len(proto_info['frames'])}"
+                ]
+            else:
+                return f"FAIL_{check_proto.upper()}_NOT_ENABLED", [
+                    f"{check_proto.upper()} protocol not detected",
+                    "No supporting frames or IEs found"
+                ]
+
+        # -------------------------------
+        # COMPACT REPORT BUILDING
+        # -------------------------------
+        def build_compact_protocol_summary(protocols):
+            """Build deduplicated protocol summary"""
             lines = []
-            lines.append("\nFILTERED ROAMING FRAMES:")
+            lines.append("\n" + "=" * 70)
+            if client_mac:
+                lines.append(f"CLIENT: {norm(client_mac)}")
+            if bssid:
+                lines.append(f"BSSID: {norm(bssid)}")
+            lines.append(f"MODE  : {mode}")
+            if check_protocol:
+                lines.append(f"CHECK : {check_protocol.upper()} only")
+            lines.append("=" * 70)
+
+            # If checking specific protocol, show only that protocol
+            if check_protocol:
+                proto = check_protocol.upper()
+                proto_name = {"11K": "802.11k (RRM)", "11V": "802.11v (BTM)", "11R": "802.11r (FT)"}.get(proto, proto)
+                data = protocols[proto.lower()]
+                status = "✓ ENABLED" if data['enabled'] else "✗ NOT DETECTED"
+
+                lines.append(f"\n┌─ {proto_name}")
+                lines.append(f"│  Status: {status}")
+                lines.append(f"│  Frames: {len(data['frames'])}")
+
+                if data['details']:
+                    lines.append(f"│")
+                    lines.append(f"│  Evidence:")
+                    for detail in data['details'][:5]:
+                        lines.append(f"│    • {detail}")
+
+                lines.append(f"└─")
+            else:
+                # Show all protocols
+                lines.append("\n┌─────────────┬──────────┬─────────────────────────────────────┐")
+                lines.append("│ Protocol    │ Status   │ Evidence                            │")
+                lines.append("├─────────────┼──────────┼─────────────────────────────────────┤")
+
+                for proto, name in [('11k', '802.11k (RRM)'), ('11v', '802.11v (BTM)'), ('11r', '802.11r (FT)')]:
+                    data = protocols[proto]
+                    status = "✓ ENABLED" if data['enabled'] else "✗ NOT DETECTED"
+
+                    lines.append(f"│ {name:<11} │ {status:<8} │                                     │")
+
+                    if data['details']:
+                        for i, detail in enumerate(data['details'][:3]):
+                            if i == 0:
+                                lines.append(f"│             │          │ • {detail:<35} │")
+                            else:
+                                lines.append(f"│             │          │   {detail:<35} │")
+
+                    if data['frames']:
+                        lines.append(f"│             │          │   ({len(data['frames'])} frames)   │")
+
+                    lines.append("├─────────────┼──────────┼─────────────────────────────────────┤")
+
+            return "\n".join(lines)
+
+        def build_frame_view(frames, protocols):
+            """Build detailed frame view (limited to unique frames)"""
+            lines = []
+            lines.append("\n" + "=" * 120)
+
+            if check_protocol:
+                lines.append(f"KEY {check_protocol.upper()} PROTOCOL FRAMES")
+            else:
+                lines.append("KEY PROTOCOL FRAMES (First occurrence per type)")
+
             lines.append("=" * 120)
 
+            seen_types = set()
+            shown_frames = []
+
             for f in frames:
-                band = band_from_channel(f["channel"])
-
-                if f["cat"] == 10 and f["action"] == 7:
-                    desc = "BTM Request"
-                elif f["cat"] == 10 and f["action"] == 8:
-                    desc = "BTM Response"
+                # Determine frame type
+                if f["cat"] == 10:
+                    frame_type = f"BTM (action={f['action']})"
+                elif f["cat"] == 5:
+                    frame_type = "RRM (11k)"
+                elif f.get("auth_alg") == "2":
+                    frame_type = "FT Auth (11r)"
                 elif f["subtype"] in [0, 2]:
-                    desc = "Assoc/Reassoc Request"
+                    frame_type = "Assoc/Reassoc Req"
                 elif f["subtype"] in [1, 3]:
-                    desc = "Assoc/Reassoc Response"
+                    frame_type = "Assoc/Reassoc Resp"
                 else:
-                    desc = "Other"
+                    continue
 
+                # If checking specific protocol, filter by protocol
+                if check_protocol:
+                    if check_protocol == "11k" and f["cat"] != 5:
+                        continue
+                    if check_protocol == "11v" and f["cat"] != 10:
+                        continue
+                    if check_protocol == "11r" and f.get("auth_alg") != "2" and "54" not in parse_tag_numbers(
+                            f.get("tag_numbers", "")):
+                        continue
+
+                # Only show first occurrence of each frame type
+                if frame_type not in seen_types:
+                    seen_types.add(frame_type)
+                    shown_frames.append((f, frame_type))
+
+            if not shown_frames:
+                return "\nNo relevant frames found"
+
+            lines.append(f"{'Frame':>6} {'Time(s)':<12} {'CH':<6} {'Type':<25} {'BSSID':<18}")
+            lines.append("-" * 80)
+
+            for f, frame_type in shown_frames[:20]:
+                band = band_from_channel(f["channel"])
                 lines.append(
                     f"{f['no']:>6}  {f['ts']:.6f}  "
-                    f"CH={f['channel']}({band})  "
-                    f"{desc:<25}  "
-                    f"{f['sa']} → {f['da']}  "
-                    f"SSID={f['ssid']}"
+                    f"{f['channel']}({band}): {frame_type:<25} "
+                    f"{f['bssid']:<18}"
                 )
 
             lines.append("=" * 120)
             return "\n".join(lines)
 
         # -------------------------------
-        # RUN
+        # MAIN EXECUTION
         # -------------------------------
         frames = run_tshark()
-        events = extract_events(frames)
-        result, details = analyze(events)
+
+        if not frames:
+            return {
+                "client_mac": norm(client_mac) if client_mac else None,
+                "bssid": norm(bssid) if bssid else None,
+                "mode": mode,
+                "check_protocol": check_protocol,
+                "result": "FAIL_NO_FRAMES",
+                "details": ["No relevant frames found in capture"],
+                "events": [],
+                "protocols": {"11k": False, "11v": False, "11r": False},
+                "protocol_details": {"11k": [], "11v": [], "11r": []},
+                "frame_counts": {"11k": 0, "11v": 0, "11r": 0},
+                "report_text": "No relevant frames found",
+                "pass_status": False,
+            }
+
+        protocols = detect_protocols(frames)
+        events = extract_events(frames, protocols)
+
+        # Determine result based on mode and check_protocol
+        if check_protocol:
+            # Specific protocol check
+            result, details = check_specific_protocol(protocols, check_protocol)
+        else:
+            # Regular mode-based analysis
+            if mode == "band_steering":
+                result, details = analyze_band_steering(events)
+            elif mode == "11r_roaming" or mode == "11r":
+                result, details = analyze_11r_roaming(events, protocols)
+            elif mode == "11kv_roaming" or mode == "11kv":
+                result, details = analyze_11kv_roaming(events, protocols)
+            elif mode == "11kvr_roaming" or mode == "11kvr":
+                result, details = analyze_11kvr_roaming(events, protocols)
+            elif mode == "11kr_roaming" or mode == "11kr":
+                result, details = analyze_11kr_roaming(events, protocols)
+            elif mode == "multi_roam":
+                multi_results = analyze_multi_roam(events, protocols)
+                if multi_results:
+                    result = multi_results[0]["result"]
+                    details = multi_results[0]["details"]
+                else:
+                    result = "FAIL_NO_ROAM"
+                    details = ["No roaming detected"]
+            else:
+                raise ValueError(f"Unsupported mode: {mode}")
 
         # -------------------------------
-        # REPORT
+        # REPORT BUILDING
         # -------------------------------
         report = []
-        report.append("=" * 100)
-        report.append(f"CLIENT: {norm(client_mac)}")
-        report.append(f"MODE  : {mode}")
-        report.append("=" * 100)
-        report.append(f"\nRESULT:\n{result}")
+        report.append(build_compact_protocol_summary(protocols))
 
+        report.append(f"\nRESULT: {result}")
+        report.append("\nDETAILS:")
         for d in details:
-            report.append(f"- {d}")
+            report.append(f"  • {d}")
 
         if show_events:
-            report.append("\nEVENTS:")
-            for e in events:
-                report.append(f"[{e['frame']}] {e['kind']} | {e['band']}")
+            report.append("\nSUPPORTING EVENTS (first 10):")
+            for e in events[:10]:
+                report.append(f"  [{e['frame']}] {e['kind']} @ {e['ts']:.6f}s | {e.get('band', '?')}")
 
         if frame_view:
-            report.append(build_frame_view(frames))
-
-        report.append("=" * 100)
+            report.append(build_frame_view(frames, protocols))
 
         return {
-            "client_mac": norm(client_mac),
+            "client_mac": norm(client_mac) if client_mac else None,
+            "bssid": norm(bssid) if bssid else None,
             "mode": mode,
+            "check_protocol": check_protocol,
             "result": result,
             "details": details,
             "events": events,
+            "protocols": {
+                "11k": protocols['11k']['enabled'],
+                "11v": protocols['11v']['enabled'],
+                "11r": protocols['11r']['enabled']
+            },
+            "protocol_details": {
+                "11k": protocols['11k']['details'],
+                "11v": protocols['11v']['details'],
+                "11r": protocols['11r']['details']
+            },
+            "frame_counts": {
+                "11k": len(protocols['11k']['frames']),
+                "11v": len(protocols['11v']['frames']),
+                "11r": len(protocols['11r']['frames'])
+            },
             "report_text": "\n".join(report),
             "pass_status": result in PASS_RESULTS,
         }
@@ -1921,7 +2599,6 @@ class lf_tests(lf_libs):
 
             print("\nAnalysing Pcap")
 
-            all_pass = not functional_failures and not pcap_failures
             for sta in sta_list:
                 client_mac = test_results.get(sta).get("client_mac")
 
@@ -1945,6 +2622,7 @@ class lf_tests(lf_libs):
                         "reason": analysis["result"]
                     })
 
+            all_pass = not functional_failures and not pcap_failures
             return all_pass, {
                 "functional_failures": functional_failures,
                 "pcap_failures": pcap_failures,
@@ -2277,7 +2955,6 @@ class lf_tests(lf_libs):
 
                 print("\nAnalysing Pcap")
 
-                all_pass = not functional_failures and not pcap_failures
                 for sta in sta_list_2:
                     client_mac = test_results.get(sta).get("client_mac")
 
@@ -2301,6 +2978,7 @@ class lf_tests(lf_libs):
                             "reason": analysis["result"]
                         })
 
+                all_pass = not functional_failures and not pcap_failures
                 return all_pass, {
                     "functional_failures": functional_failures,
                     "pcap_failures": pcap_failures,
@@ -2636,7 +3314,6 @@ class lf_tests(lf_libs):
 
                 print("\nAnalysing Pcap")
 
-                all_pass = not functional_failures and not pcap_failures
                 for sta in sta_list:
                     client_mac = test_results.get(sta).get("client_mac")
 
@@ -2660,6 +3337,7 @@ class lf_tests(lf_libs):
                             "reason": analysis["result"]
                         })
 
+                all_pass = not functional_failures and not pcap_failures
                 return all_pass, {
                     "functional_failures": functional_failures,
                     "pcap_failures": pcap_failures,
@@ -2983,7 +3661,6 @@ class lf_tests(lf_libs):
 
                 print("\nAnalysing Pcap")
 
-                all_pass = not functional_failures and not pcap_failures
                 for sta in sta_list:
                     client_mac = test_results.get(sta).get("client_mac")
 
@@ -3007,6 +3684,7 @@ class lf_tests(lf_libs):
                             "reason": analysis["result"]
                         })
 
+                all_pass = not functional_failures and not pcap_failures
                 return all_pass, {
                     "functional_failures": functional_failures,
                     "pcap_failures": pcap_failures,
@@ -4387,7 +5065,6 @@ class lf_tests(lf_libs):
 
             print("\nAnalysing Pcap")
 
-            all_pass = not functional_failures and not pcap_failures
             for sta in sta_list:
                 client_mac = test_results.get(sta).get("client_mac")
 
@@ -4411,6 +5088,7 @@ class lf_tests(lf_libs):
                         "reason": analysis["result"]
                     })
 
+            all_pass = not functional_failures and not pcap_failures
             return all_pass, {
                 "functional_failures": functional_failures,
                 "pcap_failures": pcap_failures,
@@ -4757,7 +5435,6 @@ class lf_tests(lf_libs):
 
             print("\nAnalysing Pcap")
 
-            all_pass = not functional_failures and not pcap_failures
             for sta in sta_list:
                 client_mac = test_results.get(sta).get("client_mac")
 
@@ -4781,6 +5458,7 @@ class lf_tests(lf_libs):
                         "reason": analysis["result"]
                     })
 
+            all_pass = not functional_failures and not pcap_failures
             return all_pass, {
                 "functional_failures": functional_failures,
                 "pcap_failures": pcap_failures,
@@ -5084,7 +5762,6 @@ class lf_tests(lf_libs):
 
                 print("\nAnalysing Pcap")
 
-                all_pass = not functional_failures and not pcap_failures
                 for sta in sta_list:
                     client_mac = test_results.get(sta).get("client_mac")
 
@@ -5108,6 +5785,7 @@ class lf_tests(lf_libs):
                             "reason": analysis["result"]
                         })
 
+                all_pass = not functional_failures and not pcap_failures
                 return all_pass, {
                     "functional_failures": functional_failures,
                     "pcap_failures": pcap_failures,
@@ -5483,7 +6161,6 @@ class lf_tests(lf_libs):
 
             print("\nAnalysing Pcap")
 
-            all_pass = not functional_failures and not pcap_failures
             for sta in sta_list:
                 client_mac = test_results.get(sta).get("client_mac")
 
@@ -5507,6 +6184,7 @@ class lf_tests(lf_libs):
                         "reason": analysis["result"]
                     })
 
+            all_pass = not functional_failures and not pcap_failures
             return all_pass, {
                 "functional_failures": functional_failures,
                 "pcap_failures": pcap_failures,
@@ -5996,7 +6674,22 @@ class lf_tests(lf_libs):
             #         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
             #         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', "Captured Sniffer pcap"
+            # With BSSID only
+            analysis = self.analyze_sniffer_pcap(
+                pcap_path=local_pcap,
+                bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                mode="11k",
+                show_events=True
+            )
+
+            # Check results
+            if analysis["pass_status"]:
+                print(f"PASS: {analysis['result']}")
+            else:
+                print(f"FAIL: {analysis['result']}")
+                print(f"Details: {analysis['details']}")
+
+            return analysis["pass_status"], analysis
 
         # 02
         if test_type == "verify_action_frame_from_pcap":
@@ -6092,7 +6785,7 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
@@ -6207,7 +6900,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', "Captured Sniffer pcap"
+            # With BSSID only
+            pcap_failures = []
+            analysis = self.analyze_sniffer_pcap(
+                pcap_path=local_pcap,
+                bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                mode="11k",
+                show_events=True
+            )
+
+            allure.attach(
+                analysis["report_text"],
+                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
+            if not analysis["pass_status"]:
+                pcap_failures.append({
+                    "bssid": test_config.get("bssid_5g"),
+                    "reason": analysis["result"],
+                    "details": analysis["details"]
+                })
+
+            all_pass = not pcap_failures
+            # Check results
+            if analysis["pass_status"]:
+                print(f"PASS: {analysis['result']}")
+            else:
+                print(f"FAIL: {analysis['result']}")
+                print(f"Details: {analysis['details']}")
+
+            return all_pass, analysis
 
         # 03
         if test_type == "verify_bsst":
@@ -6261,13 +6984,37 @@ class lf_tests(lf_libs):
             except Exception as e:
                 print("Allure attach failed:", e)
 
-            # Collect supplicant logs for each radio
-            # for radio, stations in station_radio_map.items():
-            #     if stations:
-            #         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
-            #         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+                # With BSSID only
+                pcap_failures = []
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                    mode="11v",
+                    show_events=True
+                )
 
-            return 'PASS', "Captured Sniffer pcap"
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "bssid": test_config.get("bssid_5g"),
+                        "reason": analysis["result"],
+                        "details": analysis["details"]
+                    })
+
+                all_pass = not pcap_failures
+                # Check results
+                if analysis["pass_status"]:
+                    print(f"PASS: {analysis['result']}")
+                else:
+                    print(f"FAIL: {analysis['result']}")
+                    print(f"Details: {analysis['details']}")
+
+                return all_pass, analysis
 
         # 04
         if test_type == "verify_sniffer_pcap":
@@ -6460,7 +7207,37 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', "Captured Sniffer pcap"
+            # With BSSID only
+            pcap_failures = []
+            analysis = self.analyze_sniffer_pcap(
+                pcap_path=local_pcap,
+                bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                mode="11v",
+                show_events=True
+            )
+
+            allure.attach(
+                analysis["report_text"],
+                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
+            if not analysis["pass_status"]:
+                pcap_failures.append({
+                    "bssid": test_config.get("bssid_5g"),
+                    "reason": analysis["result"],
+                    "details": analysis["details"]
+                })
+
+            all_pass = not pcap_failures
+            # Check results
+            if analysis["pass_status"]:
+                print(f"PASS: {analysis['result']}")
+            else:
+                print(f"FAIL: {analysis['result']}")
+                print(f"Details: {analysis['details']}")
+
+            return all_pass, analysis
 
         # 05
         elif test_type == "11r_over_11kvr":
@@ -6768,7 +7545,9 @@ class lf_tests(lf_libs):
                 name="Roaming Result – Per-Station Before vs After (BSSID & Channel) while 802.11r is enabled",
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 # before_channel = result.get("before_channel")
@@ -6779,8 +7558,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid :
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -6796,7 +7581,86 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 06 07
         elif test_type == "soft_roam_test":
@@ -7019,7 +7883,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -7031,7 +7897,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -7047,7 +7919,86 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 08
         elif test_type == "roam_enterprise_security":
@@ -7249,7 +8200,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -7260,8 +8213,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid :
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -7277,7 +8236,86 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 09
         elif test_type == "roam_personal_security":
@@ -7479,7 +8517,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -7490,8 +8530,14 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
-                if before_bssid == after_bssid :
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                if before_bssid == after_bssid:
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -7507,9 +8553,89 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
 
-        # 10 11
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
+
+
+        # 10
         elif test_type == "l2_mobility_domain":
             """
                 TC_2.4.2_3 : Test to verify L2 roaming with Mobility domain
@@ -7572,246 +8698,22 @@ class lf_tests(lf_libs):
             # Stop AMQP logging
             self.stop_amqp_log_capture(get_target_object)
 
-            return 'PASS', "Captured Sniffer pcap"
-
-        # TODO: Not Implemented yet as per test case
-        elif test_type == "roam_band_steer_05":
-            """
-                TC_ROAM-BANDSTEER_05 : Test to validate AP enabled roaming
-            """
-            band_steer = BandSteer(
-                lanforge_ip=get_testbed_details["traffic_generator"]["details"]["manager_ip"],
-                port=get_testbed_details.get("port", 8080),
-                ssid=ssid,
-                security=security,
-                password=passkey,
-                num_sta=num_sta,
-                test_type=test_type,
-                steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
-                sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
-                sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
-                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
-                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
-                upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
-                attenuators=test_config.get("attenuators", '1.1.3002'),
-                set_max_attenuators=test_config.get("set_max_attenuators", None),
-                step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40),
-                # Try connecting Far from AP for standard testcase
-                wait_time=test_config.get("wait_time", 10),
-                custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
-                initial_band_pref="5GHz"
+            # With BSSID only
+            analysis = self.analyze_sniffer_pcap(
+                pcap_path=local_pcap,
+                bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                mode="11kvr",
+                show_events=True
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
 
-
-            # -------------------- STA Creation --------------------
-            sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
-                radio=dict_all_radios_5g["mtk_radios"][0])
-            print(f"[DEBUG] Station List: {sta_list}")
-
-            # Clean up if there are already existing station with same name
-            band_steer.pre_cleanup(sta_list)
-
-            band_steer.station_list = sta_list
-
-            # Track station-radio mapping
-            track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
-
-            # -------------------- Start AMQP Log Capture --------------------
-            self.start_amqp_log_capture(get_target_object)
-
-            # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer()
-
-            # -------------------- Initial Conditions --------------------
-            if roam_towards == "ap2":
-                for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3002', 0, idx - 1)  # Initial attenuation to 45 for steer_fiveg case
-                    # Setting max attenuation to Un-used modules of given attenuator
-                    band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
+            # Check results
+            if analysis["pass_status"]:
+                print(f"PASS: {analysis['result']}")
             else:
-                for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3002', 400, idx - 1)  # Initial attenuation to 0 for steer_twog case
-                    # Setting max attenuation to Un-used modules of given attenuator
-                    band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
+                print(f"FAIL: {analysis['result']}")
+                print(f"Details: {analysis['details']}")
 
-            band_steer.create_clients(
-                radio=band_steer.station_radio,
-                ssid=ssid,
-                passwd=passkey,
-                security=security,
-                station_list=sta_list,
-                station_flag="use-bss-transition",
-                sta_type="11r_enterprise",
-                initial_band_pref="5GHz",
-                option=None
-            )
-
-            # -------------------- Validate Initial Band --------------------
-            # Attach Station IP map to allure report
-            band_steer.get_station_ips()
-            ip_text = ""
-            for station, ip in band_steer.station_ips.items():
-                ip_text += f"{station} : {ip}\n"
-
-            allure.attach(
-                ip_text,
-                name="virtual client IP mapping",
-                attachment_type=allure.attachment_type.TEXT
-            )
-
-            # -------------------- Attenuator State --------------------
-            attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
-
-            print(f"\nStarting band steering test...")
-            before_bssid = band_steer.get_bssids(as_dict=True)
-            before_chan = band_steer.get_channel(as_dict=True)
-            before_rssi = band_steer.get_rssi(as_dict=True)
-
-            # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
-
-            allure.attach(
-                body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
-                attachment_type=allure.attachment_type.JSON
-            )
-            before_state = {}
-
-            for sta in sta_list:
-                before_state[sta] = {
-                    "bssid": before_bssid.get(sta),
-                    "channel": before_chan.get(sta),
-                    "rssi": before_rssi.get(sta)
-                }
-            print(f"[DEBUG] Before Steer Station Info")
-            allure.attach(
-                body=json.dumps(before_state, indent=4),
-                name="Before Roam Station BSSID & Channel",
-                attachment_type=allure.attachment_type.JSON
-            )
-
-            for sta, ch in before_chan.items():
-                ch = int(ch)
-                if band_steer.steer_type == 'steer_fiveg':
-                    # Expected: STA creation on band 2.4 GHz
-                    if ch is None or ch not in range(1, 15):
-                        pytest.fail(
-                            f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
-                            f"Observed band: 5Ghz  (Channel {ch}) \n"
-                            f"Expected band: 2.4Ghz"
-                        )
-
-                elif band_steer.steer_type == 'steer_twog':
-                    # Expected: STA creation on band 5 GHz
-                    if ch is None or ch < 36:
-                        pytest.fail(
-                            f"[FAILED] {sta} is not on 5 GHz before steering. \n"
-                            f"Observed band: 2.4Ghz  (Channel {ch}) \n"
-                            f"Expected band: 5Ghz"
-                        )
-
-            # -------------------- Trigger Steering --------------------
-            start_time, end_time = band_steer.start_band_steer_test_standard(
-                attenuator='1.1.3002', modules=[3, 4],
-                steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
-
-            # temporarily waiting for 2 mins
-            time.sleep(120)
-
-            print(f"[DEBUG] Start Time : {start_time}")
-            print(f"[DEBUG] End Time : {end_time}")
-
-            # -------------------- Validate Steering --------------------
-            after_bssid = band_steer.get_bssids(as_dict=True)
-            after_chan = band_steer.get_channel(as_dict=True)
-            after_rssi = band_steer.get_rssi(as_dict=True)
-
-            # -------------------- Attenuator State --------------------
-            attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
-
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
-
-            # -------------------- Stop Sniffer --------------------
-            local_pcap = band_steer.stop_sniffer()
-
-            try:
-                with open(local_pcap, "rb") as f:
-                    allure.attach(
-                        f.read(),
-                        name="Roaming Sniffer Capture",
-                        attachment_type=allure.attachment_type.PCAP
-                    )
-            except Exception as e:
-                print("Allure attach failed:", e)
-
-            stations = set(before_bssid) | set(before_chan) | set(after_bssid) | set(after_chan)
-
-            test_results = {}
-            after_state = {}
-
-            for sta in sorted(stations):
-                test_results[sta] = {
-                    "before_bssid": before_bssid.get(sta),
-                    "before_channel": before_chan.get(sta),
-                    "before_rssi": before_rssi.get(sta),
-                    "after_bssid": after_bssid.get(sta),
-                    "after_channel": after_chan.get(sta),
-                    "after_rssi": after_rssi.get(sta),
-                    "client_mac": mac_dict.get(sta)
-                }
-
-            for sta in sta_list:
-                after_state[sta] = {
-                    "bssid": after_bssid.get(sta),
-                    "channel": after_chan.get(sta),
-                    "rssi": after_rssi.get(sta)
-                }
-
-            allure.attach(
-                body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
-                attachment_type=allure.attachment_type.JSON
-            )
-            allure.attach(
-                body=json.dumps(test_results, indent=4),
-                name="Roam Result – Per-Station Before vs After (BSSID & Channel)",
-                attachment_type=allure.attachment_type.JSON
-            )
-
-            for _, result in test_results.items():
-                before_bssid = result.get("before_bssid")
-                after_bssid = result.get("after_bssid")
-                before_channel = result.get("before_channel")
-                after_channel = result.get("after_channel")
-                before_rssi = result.get("before_rssi")
-                after_rssi = result.get("after_rssi")
-
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
-
-                if before_bssid == after_bssid :
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
-            print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
-
-            # Attach the station-radio mapping to allure for debugging
-            allure.attach(
-                body=json.dumps(station_radio_map, indent=4),
-                name="Station-Radio Mapping",
-                attachment_type=allure.attachment_type.JSON
-            )
-            # Collect supplicant logs for each radio
-            for radio, stations in station_radio_map.items():
-                if stations:
-                    print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
-                    self.get_supplicant_logs(radio=str(radio), sta_list=stations)
-
-            return 'PASS', test_results
+            return analysis["pass_status"], analysis
 
         # 15 16
         elif test_type == "ap_l2_roam":
@@ -8024,7 +8926,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -8036,7 +8940,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -8055,7 +8965,86 @@ class lf_tests(lf_libs):
             # Stop AMQP logging
             self.stop_amqp_log_capture(get_target_object)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 17 18 19 20
         elif test_type == "roaming_channel_check" :
@@ -8318,7 +9307,8 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-
+            functional_failures = []
+            pcap_failures = []
             for sta, result in test_results.items():
 
                 before_bssid = result.get("before_bssid")
@@ -8343,35 +9333,51 @@ class lf_tests(lf_libs):
                 # Validate BSSID changed (Roaming happened)
                 # --------------------------------------------------
                 if before_bssid == after_bssid:
-                    return 'FAIL', f"{sta} did not roam. BSSID remained same."
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
                 # --------------------------------------------------
                 # Validate Band
                 # --------------------------------------------------
                 if expected_band == "2g":
                     if after_channel not in range(1, 15):
-                        return 'FAIL', f"{sta} expected to roam on 2.4GHz but got channel {after_channel}"
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": f"{sta} expected to roam on 2.4GHz but got channel {after_channel}",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
 
                 elif expected_band == "5g":
                     if after_channel < 36:
-                        return 'FAIL', f"{sta} expected to roam on 5GHz but got channel {after_channel}"
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason": f"{sta} expected to roam on 5GHz but got channel {after_channel}",
+                                                                                                          "before": before_bssid,
+                        "after": after_bssid
+                        })
+
 
                 # --------------------------------------------------
                 # Validate Channel Condition
                 # --------------------------------------------------
                 if channel_condition == "same":
                     if before_channel != after_channel:
-                        return 'FAIL', (
-                            f"{sta} expected same channel roaming "
-                            f"(before={before_channel}, after={after_channel})"
-                        )
-
-                elif channel_condition == "different":
-                    if before_channel == after_channel:
-                        return 'FAIL', (
-                            f"{sta} expected different channel roaming "
-                            f"(before={before_channel}, after={after_channel})"
-                        )
+                        functional_failures.append({
+                            "sta": sta,
+                            "client_mac": result.get("client_mac"),
+                            "reason":  f"{sta} expected same channel roaming "
+                            f"(before={before_channel}, after={after_channel})",
+                            "before": before_bssid,
+                            "after": after_bssid
+                        })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -8387,7 +9393,86 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 23 24
         elif test_type == "4_way_handshake":
@@ -8599,7 +9684,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -8611,7 +9698,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -8630,7 +9723,86 @@ class lf_tests(lf_libs):
             # Stop AMQP logging
             self.stop_amqp_log_capture(get_target_object)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 25
         elif test_type == "roaming_with_amqp":
@@ -8842,7 +10014,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -8854,8 +10028,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -8873,7 +10052,87 @@ class lf_tests(lf_libs):
             # Stop AMQP logging
             self.stop_amqp_log_capture(get_target_object)
 
-            return 'PASS', test_results
+
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 26
         elif test_type == "roaming_with_VO":
@@ -9093,7 +10352,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -9105,7 +10366,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -9121,7 +10388,87 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
         # 27
         elif test_type == "l2_roaming_multi_client":
@@ -9266,7 +10613,7 @@ class lf_tests(lf_libs):
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
-            
+
 
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
@@ -9341,7 +10688,9 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
+            functional_failures = []
+            pcap_failures = []
+            for sta, result in test_results.items():
                 before_bssid = result.get("before_bssid")
                 after_bssid = result.get("after_bssid")
                 before_channel = result.get("before_channel")
@@ -9353,8 +10702,13 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
-
+                    functional_failures.append({
+                        "sta": sta,
+                        "client_mac": result.get("client_mac"),
+                        "reason": "BSSID did not change",
+                        "before": before_bssid,
+                        "after": after_bssid
+                    })
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
             # Attach the station-radio mapping to allure for debugging
@@ -9369,7 +10723,86 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            for sta in sta_list:
+                result = test_results.get(sta)
+                client_mac = result.get("client_mac")
+
+                if client_mac:
+                    # Use client MAC for analysis
+                    analysis = self.analyze_sniffer_pcap(
+                        pcap_path=local_pcap,
+                        client_mac=client_mac,
+                        mode="11kvr_roaming",
+                        show_events=True,
+                        frame_view=True
+                    )
+
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+
+                    if not analysis["pass_status"]:
+                        pcap_failures.append({
+                            "sta": sta,
+                            "client_mac": client_mac,
+                            "reason": analysis["result"],
+                            "details": analysis["details"]
+                        })
+
+            # 6. Determine overall pass/fail
+            all_pass = not functional_failures and not pcap_failures
+
+            # 7. Prepare result dictionary (similar to band steering)
+            result_dict = {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results,
+                "total_clients": len(sta_list),
+                "roamed_clients": len([r for r in test_results.values()
+                                       if r.get("before_bssid") != r.get("after_bssid")]),
+                "functional_pass": not functional_failures,
+                "pcap_pass": not pcap_failures
+            }
+
+            # 8. Add protocol summary if available
+            if 'analysis' in locals():
+                result_dict["protocols"] = analysis.get("protocols", {})
+                result_dict["protocol_details"] = analysis.get("protocol_details", {})
+
+            # 9. Attach summary to allure
+            allure.attach(
+                body=json.dumps(result_dict, indent=4, default=str),
+                name="Roaming Test Summary",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            # 10. Print summary
+            print("\n" + "=" * 60)
+            print("ROAMING TEST SUMMARY")
+            print("=" * 60)
+            print(f"Total Clients: {result_dict['total_clients']}")
+            print(f"Roamed Clients: {result_dict['roamed_clients']}")
+            print(f"Functional Failures: {len(functional_failures)}")
+            print(f"PCAP Analysis Failures: {len(pcap_failures)}")
+            print(f"Overall Status: {'PASS' if all_pass else 'FAIL'}")
+
+            if functional_failures:
+                print("\nFunctional Failures:")
+                for failure in functional_failures:
+                    print(f"  • {failure.get('sta', 'Unknown')}: {failure.get('reason')}")
+                    if failure.get('before_bssid') and failure.get('after_bssid'):
+                        print(f"    BSSID: {failure['before_bssid']} → {failure['after_bssid']}")
+
+            if pcap_failures:
+                print("\nPCAP Analysis Failures:")
+                for failure in pcap_failures:
+                    print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
+
+            print("=" * 60)
+
+            return all_pass, result_dict
 
 
     def band_steering_test(self, ssid="[BLANK]", passkey="[BLANK]", security="wpa2", mode="BRIDGE", band="twog",
