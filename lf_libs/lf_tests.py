@@ -9066,8 +9066,8 @@ class lf_tests(lf_libs):
                 station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
-                sniff_channel_1=test_config.get("sniff_channel_1", "6"),
-                sniff_channel_2=test_config.get("sniff_channel_2", "36"),
+                sniff_channel_1=test_config.get("sniff_channel_1", None),
+                sniff_channel_2=test_config.get("sniff_channel_2", None),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
@@ -9149,7 +9149,14 @@ class lf_tests(lf_libs):
             self.start_amqp_log_capture(get_target_object)
 
             # -------------------- Start Sniffer --------------------
-            band_steer.start_sniffer()
+            if channel_condition == "different":
+                """ 
+                    Due to hardware limitation on resource 3 lanforge, we are using
+                    one of the moni interface on resource 1 for different channel case
+                """
+                band_steer.start_sniffer(different_resource=True)
+            else:
+                band_steer.start_sniffer()
 
             if initial_band == "2Ghz":
 
@@ -9261,7 +9268,11 @@ class lf_tests(lf_libs):
             self.stop_amqp_log_capture(get_target_object)
 
             # -------------------- Stop Sniffer --------------------------
-            local_pcap = band_steer.stop_sniffer()
+            if channel_condition == "different":
+                local_pcap = band_steer.stop_sniffer(different_resource=True)
+                print(local_pcap, "PCAPP")
+            else:
+                local_pcap = band_steer.stop_sniffer()
 
             try:
                 with open(local_pcap, "rb") as f:
