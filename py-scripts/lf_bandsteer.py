@@ -1554,8 +1554,24 @@ class BandSteer(Realm):
         print(f'Resource ip for given resource {resource} : {valid_ips}')
         return valid_ips
 
-    def start_sniffer(self):
-        if not self.combined_sniff:
+    def start_sniffer(self, different_resource=False):
+        self.local_tshark_process = None
+        self.filter = "wlan type mgt"
+
+        def get_band_cf(channel):
+            try:
+                ch = int(channel)
+                if 1 <= ch <= 14:
+                    return "2427"  # 2.4GHz Band
+                elif 36 <= ch <= 177:
+                    return "5180"  # 5GHz Band
+                elif ch >= 180:
+                    return "5955"  # 6GHz Band
+            except (ValueError, TypeError):
+                pass
+            return "2427"
+
+        if not self.combined_sniff and not different_resource:
             self.pcap_obj_2 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="5180",
                                                      radio=self.sniff_radio, channel_freq="5180",
@@ -1573,7 +1589,7 @@ class BandSteer(Realm):
                 self.filter = "wlan type mgt"
                 # {self.report_path_date_time}/
                 output_file = f'band_steer_test.pcap'
-                c = f"tshark -i {monitor} -a duration:{self.sniff_duration} -f '{self.filter}' -w {output_file}"
+                c = f"tshark -q -i {monitor} -a duration:{self.sniff_duration} -f '{self.filter}' -w {output_file}"
 
                 print("Execute the first command for scapy logic")
 
@@ -1581,11 +1597,90 @@ class BandSteer(Realm):
 
             else:
                 print("some problem with monitor not being up")
+
+        if different_resource:
+            # Setup monitor1 (Local) and monitor2 (Remote)
+            # Determine Center Frequencies dynamically
+            cf1 = get_band_cf(self.sniff_channel_1)
+            cf2 = get_band_cf(self.sniff_channel_2)
+
+            # --- Setup monitor1 (Local) ---
+            if self.sniff_channel_1 is not None:
+                print(f"Configuring monitor1: Channel {self.sniff_channel_1} (CF: {cf1})")
+                self.pcap_obj_1 = sniff_radio.SniffRadio(
+                    lfclient_host=self.lanforge_ip,
+                    lfclient_port=self.port,
+                    center_freq=cf1,
+                    radio=self.sniff_radio_1,
+                    channel=self.sniff_channel_1,
+                    monitor_name="monitor1"
+                )
+                self.pcap_obj_1.setup(0, 0, 0)
+                self.pcap_obj_1.monitor.admin_up()
+
+            # --- Setup monitor2 (Remote) ---
+            if self.sniff_channel_2 is not None:
+                print(f"Configuring monitor2: Channel {self.sniff_channel_2} (CF: {cf2})")
+                self.pcap_obj_2 = sniff_radio.SniffRadio(
+                    lfclient_host=self.lanforge_ip,
+                    lfclient_port=self.port,
+                    center_freq=cf2,
+                    radio=self.sniff_radio_2,
+                    channel=self.sniff_channel_2,
+                    monitor_name="monitor2"
+                )
+                self.pcap_obj_2.setup(0, 0, 0)
+                self.pcap_obj_2.monitor.admin_up()
+
+            print("Waiting until ports appear...")
+            # Wait logic for x (local) and y (remote)
+            x = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
+                                                port_list="monitor1", debug=True, timeout=300)
+            y = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
+                                                port_list=f"{self.sniff_radio_resource_2}.{self.sniff_radio_shelf_2}.monitor2",
+                                                debug=True, timeout=300)
+
+            if x and y:
+                # --- START LOCAL SNIFFER ---
+                self.local_output = os.path.abspath("sniffer_1.pcapng")
+                local_cmd = f"tshark -q -i monitor1 -f '{self.filter}' -w {self.local_output}"
+                self.local_tshark_process = subprocess.Popen(
+                    local_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+
+                # --- START REMOTE SNIFFER ---
+                sniffer_host = self.get_resource_host()
+                self.ssh = paramiko.SSHClient()
+                self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self.ssh.connect(hostname=list(sniffer_host.values())[0], username="root", password="lanforge")
+
+                self.remote_output = "/tmp/sniffer_2.pcapng"
+                self._ssh_run(f"rm -f {self.remote_output} /tmp/tshark2.log")
+
+                # Use 'echo $!' to get the PID of the backgrounded tshark immediately
+                remote_cmd = (f"nohup tshark -q -i monitor2 -f {shlex.quote(self.filter)} "
+                              f"-w {shlex.quote(self.remote_output)} > /tmp/tshark2.log 2>&1 & echo $!")
+
+                rc, out, err = self._ssh_run(remote_cmd)
+
+                print("RC", rc)
+                print("out", out)
+                print("ERR", err)
+                # Extract only the last line (the PID) in case nohup prints a warning
+                self.remote_tshark_pid = out.strip().split('\n')[-1]
+
+                print("PID: ", self.remote_tshark_pid, self.remote_tshark_pid.isdigit())
+                if self.remote_tshark_pid.isdigit():
+                    print(f"✅ Remote tshark started, PID: {self.remote_tshark_pid}")
+                else:
+                    print(f"❌ Failed to get PID. Output was: {out}")
+                # Move the sleep here: give the remote process time to start writing
+                time.sleep(2)
         else:
             if self.sniff_channel_1 is not None:
                 self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                          center_freq="2437",
-                                                         radio=self.sniff_radio_1, channel_freq=self.sniff_channel_1,
+                                                         radio=self.sniff_radio_1, channel=self.sniff_channel_1,
                                                          monitor_name="monitor1")
 
                 self.pcap_obj_1.setup(0, 0, 0)
@@ -1593,7 +1688,7 @@ class BandSteer(Realm):
 
             self.pcap_obj_2 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="5180",
-                                                     radio=self.sniff_radio_2, channel_freq=self.sniff_channel_2,
+                                                     radio=self.sniff_radio_2, channel=self.sniff_channel_2,
                                                      monitor_name="monitor2")
             self.pcap_obj_2.setup(0, 0, 0)
             self.pcap_obj_2.monitor.admin_up()
@@ -1697,50 +1792,93 @@ class BandSteer(Realm):
             if transport:
                 transport.close()
 
-    def stop_sniffer(self):
-        if not getattr(self, "ssh", None) or not getattr(self, "tshark_pid", None):
-            print("Sniffer not running")
-            return
+    def stop_sniffer(self, different_resource=False):
+        final_pcap = None
+        local_pcap = None
+        if different_resource:
+            # 1. Stop Local
+            if getattr(self, "local_tshark_process", None):
+                print("Stopping Local Sniffer...")
+                self.local_tshark_process.terminate()
+                self.local_tshark_process.wait()
 
-        pid = self.tshark_pid
+            # 2. Stop Remote
+            if getattr(self, "ssh", None) and getattr(self, "remote_tshark_pid", None):
+                print("Stopping Remote Sniffer...")
+                # INTEGRATED PCAP.PY LOGIC: Use kill -2 (SIGINT) for clean pcap closure
+                self._ssh_run(f"kill -2 {self.remote_tshark_pid}")
+                time.sleep(3)  # Allow time for buffer flush
 
-        # Graceful stop
-        self._ssh_run(f"kill -INT {pid} || true")
+                # INTEGRATED PCAP.PY LOGIC: Verify file exists and has size > 0
+                check_cmd = f"test -s {self.remote_output} && echo 'READY' || echo 'MISSING'"
+                rc, out, _ = self._ssh_run(check_cmd)
 
-        for _ in range(40):
+                if "READY" in out:
+                    local_sniffer_2 = os.path.abspath("sniffer_2.pcapng")
+                    self.download_pcap(remote_path=self.remote_output, local_path=local_sniffer_2)
+
+                    # 3. Merge
+                    combined_pcap = os.path.abspath("combined_sniffer.pcapng")
+                    local_1 = getattr(self, "local_output", "sniffer_1.pcapng")
+
+                    merge_cmd = f"mergecap -w {combined_pcap} {local_1} {local_sniffer_2}"
+                    print(f"Merging files: {merge_cmd}")
+
+                    res = subprocess.run(merge_cmd, shell=True, capture_output=True, text=True)
+                    if res.returncode == 0 and os.path.exists(combined_pcap):
+                        print(f"Successfully created: {combined_pcap}")
+                        local_pcap = combined_pcap
+                    else:
+                        print(f"❌ Merge failed: {res.stderr}")
+                else:
+                    print("❌ Remote file was not created or is empty.")
+
+                self.ssh.close()
+        else:
+            if not getattr(self, "ssh", None) or not getattr(self, "tshark_pid", None):
+                print("Sniffer not running")
+                return None
+
+            pid = self.tshark_pid
+
+            # Graceful stop
+            self._ssh_run(f"kill -INT {pid} || true")
+
+            for _ in range(40):
+                _, out, _ = self._ssh_run(
+                    f"kill -0 {pid} >/dev/null 2>&1; echo $?"
+                )
+                if out.strip() != "0":
+                    break
+                time.sleep(0.5)
+
+            # Flush filesystem
+            time.sleep(2)
+            self._ssh_run("sync")
+            time.sleep(1)
+
+            # Validate PCAP remotely
             _, out, _ = self._ssh_run(
-                f"kill -0 {pid} >/dev/null 2>&1; echo $?"
+                f"tshark -r {shlex.quote(self.output_file)} -c 1 >/dev/null 2>&1; echo $?"
             )
             if out.strip() != "0":
-                break
-            time.sleep(0.5)
+                print("PCAP validation failed on sniffer host")
+                _, log_out, _ = self._ssh_run("tail -n 80 /tmp/tshark1.log || true")
+                print("tshark log:\n", log_out)
+                return
 
-        # Flush filesystem
-        time.sleep(2)
-        self._ssh_run("sync")
-        time.sleep(1)
-
-        # Validate PCAP remotely
-        _, out, _ = self._ssh_run(
-            f"tshark -r {shlex.quote(self.output_file)} -c 1 >/dev/null 2>&1; echo $?"
-        )
-        if out.strip() != "0":
-            print("PCAP validation failed on sniffer host")
-            _, log_out, _ = self._ssh_run("tail -n 80 /tmp/tshark1.log || true")
-            print("tshark log:\n", log_out)
-            return
-
-        print("Remote tshark stopped and PCAP looks valid")
-        local_pcap = os.path.abspath(
-            os.path.basename(self.output_file)
-        )
-        print(f"[DEBUG] PATH : {self.output_file} === {local_pcap}")
-        self.download_pcap(
-            remote_path=self.output_file,
-            local_path=local_pcap
-        )
-        # Close SSH
-        self.ssh.close()
+            print("Remote tshark stopped and PCAP looks valid")
+            local_pcap = os.path.abspath(
+                os.path.basename(self.output_file)
+            )
+            print(f"[DEBUG] PATH : {self.output_file} === {local_pcap}")
+            self.download_pcap(
+                remote_path=self.output_file,
+                local_path=local_pcap
+            )
+            final_pcap = local_pcap
+            # Close SSH
+            self.ssh.close()
 
         # returning pcap path
         return local_pcap
