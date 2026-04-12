@@ -1677,27 +1677,29 @@ class BandSteer(Realm):
                 # Move the sleep here: give the remote process time to start writing
                 time.sleep(2)
         else:
-            if self.sniff_channel_1 is not None:
-                self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
-                                                         center_freq="2437",
-                                                         radio=self.sniff_radio_1, channel=self.sniff_channel_1,
-                                                         monitor_name="monitor1")
+            self.pcap_obj_1 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
+                                                     center_freq="2412",
+                                                     radio=self.sniff_radio_1,
+                                                     channel_freq="2412",
+                                                     # channel=self.sniff_channel_1,
+                                                     monitor_name="monitor1")
 
-                self.pcap_obj_1.setup(0, 0, 0)
-                self.pcap_obj_1.monitor.admin_up()
+            self.pcap_obj_1.setup(0, 0, 0)
+            self.pcap_obj_1.monitor.admin_up()
 
             self.pcap_obj_2 = sniff_radio.SniffRadio(lfclient_host=self.lanforge_ip, lfclient_port=self.port,
                                                      center_freq="5180",
-                                                     radio=self.sniff_radio_2, channel=self.sniff_channel_2,
+                                                     radio=self.sniff_radio_2,
+                                                     channel_freq="5180",
+#                                                      channel=self.sniff_channel_2,
                                                      monitor_name="monitor2")
             self.pcap_obj_2.setup(0, 0, 0)
             self.pcap_obj_2.monitor.admin_up()
 
             print("Waiting until ports appear...")
-            if self.sniff_channel_1 is not None:
-                x = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
-                                                    port_list=f"{self.sniff_radio_resource_1}.{self.sniff_radio_shelf_1}.monitor1",
-                                                    debug=True, timeout=300)
+            x = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
+                                                port_list=f"{self.sniff_radio_resource_1}.{self.sniff_radio_shelf_1}.monitor1",
+                                                debug=True, timeout=300)
 
             y = LFUtils.wait_until_ports_appear(base_url=f"http://{self.lanforge_ip}:{self.port}",
                                                 port_list=f"{self.sniff_radio_resource_2}.{self.sniff_radio_shelf_2}.monitor2",
