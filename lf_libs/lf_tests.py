@@ -2986,7 +2986,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return 'FAIL', 'Found NO connectivity between stations/Upstream'
+                return False, 'Found NO connectivity between stations/Upstream'
 
         elif test_type == "post_assoc":
             """
@@ -3345,7 +3345,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return 'FAIL', 'Stations are not Pinging Each other'
+                return False, 'Stations are not Pinging Each other'
 
         elif test_type == "neither_band_post_assoc":
             """
@@ -3691,7 +3691,7 @@ class lf_tests(lf_libs):
                     "per_client": test_results
                 }
             else:
-                return 'FAIL', 'Stations are not Pinging Each other'
+                return False, 'Stations are not Pinging Each other'
 
         elif test_type == "stickiness":
             """
@@ -4195,7 +4195,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Connectivity status : {ping_status}")
 
             if not ping_status:
-                return 'FAIL', 'Stations are not Pinging Each other'
+                return False, 'Stations are not Pinging Each other'
 
             for iteration in range(1, total_iterations + 1):
                 print(f"\n{'=' * 60}")
@@ -4421,7 +4421,7 @@ class lf_tests(lf_libs):
             # Final assertion based on expected output
             if success_count >= 5:
                 print(f"\n✓ TEST PASSED: Success rate {success_count}/{total_iterations} ≥ 5/6")
-                return 'PASS', {
+                return True, {
                     'success_count': success_count,
                     'total_iterations': total_iterations,
                     'success_rate': success_rate,
@@ -4608,7 +4608,7 @@ class lf_tests(lf_libs):
             # -------------------- Ping Status --------------------
             print(f"[DEBUG] Connectivity status : {ping_status}")
             if not ping_status:
-                return 'FAIL', 'Stations are not Pinging Each other'
+                return False, 'Stations are not Pinging Each other'
 
             band_steer.create_specific_cx(station_list=sta_list_1)
             band_steer.start_traffic_cx()
@@ -4742,13 +4742,13 @@ class lf_tests(lf_libs):
                 after_rssi = result.get("after_rssi")
 
                 # if before_bssid == after_bssid and before_channel == after_channel:
-                #     return 'FAIL', f'BSSID and Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
+                #     return False, f'BSSID and Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
                 #
                 # if before_bssid == after_bssid:
-                #     return 'FAIL', f'BSSID did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
+                #     return False, f'BSSID did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
                 #
                 # if before_channel == after_channel:
-                #     return 'FAIL', f'Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
+                #     return False, f'Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
 
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
@@ -4777,7 +4777,7 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return 'PASS', test_results
+            return True, test_results
 
         elif test_type == "vlan_standard":
             """
@@ -5329,7 +5329,7 @@ class lf_tests(lf_libs):
             # -------------------- Ping Status --------------------
             print(f"[DEBUG] Connectivity status : {ping_status}")
             if ping_status:
-                return 'FAIL', 'Stations Pinging Each other even Client isolation is enabled.'
+                return False, 'Stations Pinging Each other even Client isolation is enabled.'
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
@@ -5793,7 +5793,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return 'FAIL', 'Stations are not Pinging Each other'
+                return False, 'Stations are not Pinging Each other'
 
         elif test_type == "management_vlan_data_vlan_client_isolation":
             """
@@ -6678,7 +6678,7 @@ class lf_tests(lf_libs):
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11k",
+                mode="11kv",
                 show_events=True
             )
 
@@ -6883,7 +6883,7 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
-                    return 'FAIL', 'BSSID/Channel are not matched after attenuation applied'
+                    return False, 'BSSID/Channel are not matched after attenuation applied'
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
 
@@ -6905,7 +6905,7 @@ class lf_tests(lf_libs):
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11k",
+                mode="11kv",
                 show_events=True
             )
 
@@ -6984,37 +6984,37 @@ class lf_tests(lf_libs):
             except Exception as e:
                 print("Allure attach failed:", e)
 
-                # With BSSID only
-                pcap_failures = []
-                analysis = self.analyze_sniffer_pcap(
-                    pcap_path=local_pcap,
-                    bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                    mode="11v",
-                    show_events=True
-                )
+            # With BSSID only
+            pcap_failures = []
+            analysis = self.analyze_sniffer_pcap(
+                pcap_path=local_pcap,
+                bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
+                mode="11v",
+                show_events=True
+            )
 
-                allure.attach(
-                    analysis["report_text"],
-                    name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
-                    attachment_type=allure.attachment_type.TEXT
-                )
+            allure.attach(
+                analysis["report_text"],
+                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                attachment_type=allure.attachment_type.TEXT
+            )
 
-                if not analysis["pass_status"]:
-                    pcap_failures.append({
-                        "bssid": test_config.get("bssid_5g"),
-                        "reason": analysis["result"],
-                        "details": analysis["details"]
-                    })
+            if not analysis["pass_status"]:
+                pcap_failures.append({
+                    "bssid": test_config.get("bssid_5g"),
+                    "reason": analysis["result"],
+                    "details": analysis["details"]
+                })
 
-                all_pass = not pcap_failures
-                # Check results
-                if analysis["pass_status"]:
-                    print(f"PASS: {analysis['result']}")
-                else:
-                    print(f"FAIL: {analysis['result']}")
-                    print(f"Details: {analysis['details']}")
+            all_pass = not pcap_failures
+            # Check results
+            if analysis["pass_status"]:
+                print(f"PASS: {analysis['result']}")
+            else:
+                print(f"FAIL: {analysis['result']}")
+                print(f"Details: {analysis['details']}")
 
-                return all_pass, analysis
+            return all_pass, analysis
 
         # 04
         if test_type == "verify_sniffer_pcap":
@@ -9066,8 +9066,8 @@ class lf_tests(lf_libs):
                 station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
-                sniff_channel_1=test_config.get("sniff_channel_1", None),
-                sniff_channel_2=test_config.get("sniff_channel_2", None),
+                sniff_channel_1=test_config.get("sniff_channel_1"),
+                sniff_channel_2=test_config.get("sniff_channel_2"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0],
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
