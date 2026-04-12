@@ -6989,7 +6989,7 @@ class lf_tests(lf_libs):
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11v",
+                mode="11kv",
                 show_events=True
             )
 
@@ -7212,7 +7212,7 @@ class lf_tests(lf_libs):
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11v",
+                mode="11kv",
                 show_events=True
             )
 
