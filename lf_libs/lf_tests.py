@@ -446,6 +446,58 @@ class lf_tests(lf_libs):
                 pass
             return hex_ssid
 
+        def pretty_filter(flt):
+            return flt.replace("&&", "\n  and ").replace("||", "\n  or ")
+
+        def build_filter_summary():
+            filters = []
+            if client_mac:
+                filters.append(f"Client MAC = {norm(client_mac)}")
+
+            if bssid:
+                filters.append(f"BSSID = {norm(bssid)}")
+
+            if check_protocol:
+                filters.append(f"Protocol Filter = {check_protocol.upper()}")
+
+            filters.append("Frame Types = Assoc/Reassoc/Auth/Action/Beacon/EAPOL")
+
+            filters.append(f"Roam Window = {window}s")
+
+            # Derived filters
+            filters.append("Roam Criteria = BSSID transition within time window")
+
+            filters.append("Band Filter = Derived from channel (2.4G/5G/6G)")
+
+            return filters
+
+        def build_static_logic_reference():
+            return """
+
+        ANALYSIS LOGIC REFERENCE:
+
+        BAND STEERING:
+          - Detect BTM Request (11v)
+          - Check client moves to different BSSID
+          - Validate band transition (2.4G ↔ 5G/6G)
+
+        802.11k:
+          - RRM frames (category_code = 5)
+          - Neighbor Report IE (tag 52)
+
+        802.11v:
+          - BTM Request/Response (category_code = 10)
+          - Extended Capabilities IE (tag 127)
+
+        802.11r:
+          - FT Authentication (auth_alg = 2)
+          - Mobility Domain IE (tag 54)
+          - RSN FT AKM (tag 48)
+
+        ROAM DETECTION:
+          - BSSID transition within time window
+          - Assoc Response OR FT Authentication
+            """
         # -------------------------------
         # TSHARK - Enhanced for 11k/11v/11r (supports client MAC or BSSID)
         # -------------------------------
@@ -565,7 +617,7 @@ class lf_tests(lf_libs):
                     "mobility_domain": clean_quoted_value(values[15] if len(values) > 15 else ""),
                 })
 
-            return sorted(frames, key=lambda x: x["ts"])
+            return sorted(frames, key=lambda x: x["ts"]), frame_filter
 
         # -------------------------------
         # PROTOCOL DETECTION (with deduplication)
@@ -1164,7 +1216,7 @@ class lf_tests(lf_libs):
         # -------------------------------
         # MAIN EXECUTION
         # -------------------------------
-        frames = run_tshark()
+        frames, tshark_filter = run_tshark()
 
         if not frames:
             return {
@@ -1230,6 +1282,15 @@ class lf_tests(lf_libs):
 
         if frame_view:
             report.append(build_frame_view(frames, protocols))
+
+        report.append("\nFILTERS USED:")
+        for f in build_filter_summary():
+            report.append(f"  • {f}")
+
+        report.append("\nPCAP DISPLAY FILTER USED:")
+        report.append(pretty_filter(tshark_filter))
+
+        report.append(build_static_logic_reference())
 
         return {
             "client_mac": norm(client_mac) if client_mac else None,
@@ -5577,6 +5638,45 @@ class lf_tests(lf_libs):
         except Exception as e:
             logging.error(f"Failed to fetch AMQP logs: {e}")
 
+    @staticmethod
+    def build_ap_transition_summary(sta, before_state, after_state, current_AP1=True):
+        lines = []
+        lines.append("\nROAMING AP TRANSITION SUMMARY:")
+        lines.append("=" * 60)
+
+        before = before_state.get(sta, {})
+        after = after_state.get(sta, {})
+
+        lines.append(f"\nStation: {sta}")
+
+        current_AP = 'AP1' if current_AP1 else 'AP2'
+        target_AP = 'AP2' if current_AP1 else 'AP1'
+
+        # Current AP
+        lines.append(
+            f"  Current {current_AP}  -> "
+            f"BSSID: {before.get('bssid')} | "
+            f"CH: {before.get('channel')} | "
+            f"RSSI: {before.get('rssi')}"
+        )
+
+        # Target AP
+        lines.append(
+            f"  Target {target_AP}   -> "
+            f"BSSID: {after.get('bssid')} | "
+            f"CH: {after.get('channel')} | "
+            f"RSSI: {after.get('rssi')}"
+        )
+
+        # Decision
+        if before.get("bssid") != after.get("bssid"):
+            lines.append("  Roam Status -> SUCCESS")
+        else:
+            lines.append("  Roam Status -> FAILED")
+
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
     def run_roam_test(
             self,
             ssid,
@@ -5861,6 +5961,14 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
+
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition Summary",
+                attachment_type=allure.attachment_type.TEXT
+            )
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
@@ -6396,6 +6504,14 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition before 11r enable",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Roam Station BSSID & Channel while 802.11r is disabled",
@@ -6537,6 +6653,13 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state, current_AP1=False)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition Summary after 11r enable",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Roam Station BSSID & Channel while 802.11r is enabled",
@@ -6874,6 +6997,19 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = None
+            if roam_towards == "ap2":
+                ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            else:
+                ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                              after_state=after_state, current_AP1=False)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -7191,6 +7327,14 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -7507,6 +7651,14 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
+
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
@@ -7917,6 +8069,13 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -8309,6 +8468,13 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -8686,6 +8852,13 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -9015,7 +9188,13 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
 
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -9353,7 +9532,13 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
 
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
@@ -9689,7 +9874,13 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
 
+            allure.attach(
+                ap_summary,
+                name="AP Roaming Transition",
+                attachment_type=allure.attachment_type.TEXT
+            )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
                 name="After Band Steering Station BSSID & Channel",
