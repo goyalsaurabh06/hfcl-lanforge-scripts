@@ -1732,12 +1732,12 @@ class BandSteer(Realm):
 
                 cmd = (
                         "bash -lc " + shlex.quote(
-                    f"nohup sudo -n tshark "
-                    f"-i monitor1 -i monitor2 "
-                    f"-f {shlex.quote(self.filter)} "
-                    f"-w {shlex.quote(self.output_file)} "
-                    f"> /tmp/tshark1.log 2>&1 & echo $!"
-                )
+                        f"nohup sudo -n tshark "
+                        f"-i monitor1 -i monitor2 "
+                        f"-f {shlex.quote(self.filter)} "
+                        f"-w {shlex.quote(self.output_file)} "
+                        f"> /tmp/tshark1.log 2>&1 & echo $!"
+                    )
                 )
 
                 print("COMMAND:", cmd)
@@ -1754,9 +1754,9 @@ class BandSteer(Realm):
 
                 print(f"Remote tshark started, PID = {self.tshark_pid}")
 
-            # Creation of Dummy stations for mtk 7996 radios
-            self.create_clients(radio=self.sniff_radio_1, ssid="Dummy_ssid", passwd="Dummy_passwd", security="wpa2", station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
-            self.create_clients(radio=self.sniff_radio_2, ssid="Dummy_ssid", passwd="Dummy_passwd", security="wpa2", station_list=['1.3.dummy1'], station_flag=None, sta_type="normal", dummy_client=True)
+        # Creation of Dummy stations for mtk 7996 radios
+        self.create_clients(radio=self.sniff_radio_1, ssid="Dummy_ssid", passwd="Dummy_passwd", security="wpa2", station_list=['1.3.dummy0'], station_flag=None, sta_type="normal", dummy_client=True)
+        self.create_clients(radio=self.sniff_radio_2, ssid="Dummy_ssid", passwd="Dummy_passwd", security="wpa2", station_list=['1.3.dummy1'], station_flag=None, sta_type="normal", dummy_client=True)
 
     def download_pcap(self, remote_path, local_path, timeout=60):
         print(f"[DEBUG] PATH : {remote_path} --- {local_path}")
