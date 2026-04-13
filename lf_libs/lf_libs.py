@@ -1098,50 +1098,6 @@ class lf_libs:
         except Exception as e:
             logging.error(e)
 
-    def create_stations(self):
-        pass
-
-    def delete_stations(self):
-        pass
-
-    def modify_station(self):
-        pass
-
-    def read_stations(self):
-        pass
-
-    def pull_reports(self):
-        pass
-
-    def get_wifi_radios(self):
-        pass
-
-    def modify_wifi_radio(self):
-        pass
-
-    def load_scenario_db(self):
-        pass
-
-    def delete_dut(self):
-        pass
-
-    def read_dut(self):
-        pass
-
-    def update_dut(self):
-        pass
-
-    def get_ethernet_ports(self):
-        pass
-
-    def set_ethernet_port(self):
-        pass
-
-    def clean_port_manager(self):
-        pass
-
-    def clean_layer3cx(self):
-        pass
 
     def station_data_query(self, station_name=None, query=None):
         """Station data query. station name e.g 1.1.wlan0000"""
@@ -1266,15 +1222,6 @@ class lf_libs:
         time.sleep(15)
         return self.chamberview_object, self.scenario
 
-    def setup_radius_server(self, user=""):
-        """
-            TODO:
-                setup freeradius server on lanforge and return the radius server data
-                setup the radius server for basic EAP-TLS and EAP-TTLS encryptions
-            Special Radius configurations can be done in later implementations
-            Radius server should be working properly on WAN Interface of AP
-        """
-        pass
 
     def enable_verbose_debug(self, radio=None, enable=True):
         """Increase debug info in wpa-supplicant and hostapd logs"""
@@ -1577,30 +1524,6 @@ class lf_libs:
         else:
             return signal
 
-    def attenuator_serial_radio(self, ssid="[BLANK]", passkey="[BLANK]", security="wpa2", mode="BRIDGE", atn_val=400,
-                                vlan_id=100, client_type=0, station_name=[], radio='1.1.wiphy0', timeout=20):
-        # index 0 of atten_serial_radio will ser no of 1st 2g/5g radio and index 1 will ser no of 2nd and 3rd 2g/5g radio
-        atten_serial_radio = []
-        atten_serial = self.attenuator_serial()
-        self.client_connect_using_radio(ssid=ssid, passkey=passkey, security=security, mode=mode,
-                                        vlan_id=vlan_id, radio=radio, client_type=client_type,
-                                        station_name=station_name)
-        signal1 = self.get_station_signal(station_name[0], timeout)
-        atten_sr = atten_serial[0].split(".")
-        self.attenuator_modify(int(atten_sr[2]), "all", atn_val)
-        time.sleep(0.5)
-        signal2 = self.get_station_signal(station_name[0], timeout)
-        try:
-            if abs(int(signal2.split(" ")[0])) - abs(int(signal1.split(" ")[0])) >= 5:
-                atten_serial_radio = atten_serial
-            else:
-                atten_serial_radio = atten_serial[::-1]
-            return atten_serial_radio
-        except Exception as e:
-            logging.error(f"{e}")
-            return False
-        finally:
-            self.client_disconnect(station_name=station_name)
 
     def read_kpi_file(self, column_name, dir_name):
         if column_name == None:
