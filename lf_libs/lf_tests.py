@@ -5602,6 +5602,7 @@ class lf_tests(lf_libs):
         """Clear AMQP logs at test start"""
         logging.info("Clearing syslog before test start")
 
+        # for i in range(len(get_testbed_details['device_under_tests'])):
         try:
             get_target_object.dut_library_object.run_generic_command(
                 cmd="logread -c",
@@ -5677,98 +5678,113 @@ class lf_tests(lf_libs):
         lines.append("=" * 60)
         return "\n".join(lines)
 
-    def start_hostapd_logging(self, get_target_object, idx=0):
-        """Start hostapd debug logging and save to file"""
+    def start_hostapd_logging(self, get_target_object, testbed_details):
+        """Start hostapd debug logging for all DUTs and save to files"""
 
-        logging.info("Starting hostapd debug logging...")
+        logging.info("Starting hostapd debug logging for all DUTs...")
+        dut_count = len(testbed_details['device_under_tests'])
 
-        dut = get_target_object.dut_library_object
+        for idx in range(dut_count):
+            dut = get_target_object.dut_library_object
 
-        try:
-            # 1. Remove old logs
-            dut.run_generic_command(
-                cmd="rm -f /tmp/hostapd_logs.txt",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
+            try:
+                logging.info(f"Starting hostapd logging for DUT index {idx}")
 
-            # 2. Kill existing hostapd
-            dut.run_generic_command(
-                cmd="killall hostapd",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
+                # Use unique log file per DUT
+                log_file = f"/tmp/hostapd_logs_dut{idx}.txt"
 
-            # 3. Start hostapd in debug mode
-            dut.run_generic_command(
-                cmd="hostapd -g /var/run/hostapd/global -dddtK -f /tmp/hostapd_logs.txt -P /var/run/hostapd-global.pid &",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            # 4. Bring WiFi back
-            dut.run_generic_command(
-                cmd="wifi",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            time.sleep(5)  # allow hostapd to stabilize
-
-            # 5. Add start marker
-            dut.run_generic_command(
-                cmd='echo "========== HOSTAPD LOG START ==========" >> /tmp/hostapd_logs.txt',
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            logging.info("Hostapd logging started successfully")
-
-        except Exception as e:
-            logging.error(f"Failed to start hostapd logging: {e}")
-
-    def stop_hostapd_logging(self, get_target_object, idx=0):
-        """Stop hostapd logging, fetch logs, and attach to Allure"""
-
-        logging.info("Stopping hostapd logging and fetching logs...")
-
-        dut = get_target_object.dut_library_object
-
-        try:
-            # 1. Add end marker
-            dut.run_generic_command(
-                cmd='echo "========== HOSTAPD LOG END ==========" >> /tmp/hostapd_logs.txt',
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            # 2. Fetch logs
-            logs = dut.run_generic_command(
-                cmd="cat /tmp/hostapd_logs.txt",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            # 3. Attach to Allure
-            if logs and logs.strip():
-                allure.attach(
-                    logs,
-                    name="Hostapd Debug Logs (Client Creation → Roaming)",
-                    attachment_type=allure.attachment_type.TEXT
+                # 1. Remove old logs
+                dut.run_generic_command(
+                    cmd=f"rm -f {log_file}",
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
                 )
-                logging.info("Hostapd logs attached to Allure")
-            else:
-                logging.warning("Hostapd log file is empty")
 
-        except Exception as e:
-            logging.error(f"Failed to fetch hostapd logs: {e}")
+                # 2. Kill existing hostapd
+                dut.run_generic_command(
+                    cmd="killall hostapd",
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                # 3. Start hostapd in debug mode with DUT-specific log file
+                dut.run_generic_command(
+                    cmd=f"hostapd -g /var/run/hostapd/global -dddtK -f {log_file} -P /var/run/hostapd-global.pid &",
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                # 4. Bring WiFi back
+                dut.run_generic_command(
+                    cmd="wifi",
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                time.sleep(5)  # allow hostapd to stabilize
+
+                # 5. Add start marker with DUT identifier
+                identifier = testbed_details['device_under_tests'][idx].get('identifier', f'DUT_{idx}')
+                dut.run_generic_command(
+                    cmd=f'echo "========== HOSTAPD LOG START - {identifier} ==========" >> {log_file}',
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                logging.info(f"Hostapd logging started successfully for DUT index {idx}")
+
+            except Exception as e:
+                logging.error(f"Failed to start hostapd logging for DUT index {idx}: {e}")
+
+    def stop_hostapd_logging(self, get_target_object, testbed_details):
+        """Stop hostapd logging for all DUTs, fetch logs, and attach to Allure"""
+
+        logging.info("Stopping hostapd logging and fetching logs for all DUTs...")
+        dut_count = len(testbed_details['device_under_tests'])
+
+        for idx in range(dut_count):
+            dut = get_target_object.dut_library_object
+
+            try:
+                logging.info(f"Stopping hostapd logging for DUT index {idx}")
+
+                log_file = f"/tmp/hostapd_logs_dut{idx}.txt"
+                identifier = testbed_details['device_under_tests'][idx].get('identifier', f'DUT_{idx}')
+
+                # 1. Add end marker
+                dut.run_generic_command(
+                    cmd=f'echo "========== HOSTAPD LOG END - {identifier} ==========" >> {log_file}',
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                # 2. Fetch logs
+                logs = dut.run_generic_command(
+                    cmd=f"cat {log_file}",
+                    idx=idx,
+                    print_log=False,
+                    attach_allure=False
+                )
+
+                # 3. Attach to Allure with DUT identifier
+                if logs and logs.strip():
+                    allure.attach(
+                        logs,
+                        name=f"Hostapd Debug Logs - {identifier} - {idx}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+                    logging.info(f"Hostapd logs attached to Allure for DUT {identifier}")
+                else:
+                    logging.warning(f"Hostapd log file is empty for DUT {identifier}")
+
+            except Exception as e:
+                logging.error(f"Failed to fetch hostapd logs for DUT index {idx}: {e}")
 
     def run_roam_test(
             self,
@@ -5840,8 +5856,8 @@ class lf_tests(lf_libs):
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -5931,8 +5947,8 @@ class lf_tests(lf_libs):
             #                                                                 enable_11v=False)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -6168,8 +6184,8 @@ class lf_tests(lf_libs):
             )
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -6269,8 +6285,8 @@ class lf_tests(lf_libs):
 
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -6509,8 +6525,8 @@ class lf_tests(lf_libs):
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -6952,8 +6968,8 @@ class lf_tests(lf_libs):
             print(f"Channel {channel} successfully set on {radio}")
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
 
             # -------------------- Enable 802.11k/v/r --------------------
@@ -7273,8 +7289,8 @@ class lf_tests(lf_libs):
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Enable 802.11kvr --------------------
             # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -7600,8 +7616,8 @@ class lf_tests(lf_libs):
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Enable 802.11kvr --------------------
             # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
@@ -7934,8 +7950,8 @@ class lf_tests(lf_libs):
             #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -8018,8 +8034,8 @@ class lf_tests(lf_libs):
             #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -8413,8 +8429,8 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             if channel_condition == "different":
@@ -8802,8 +8818,8 @@ class lf_tests(lf_libs):
             #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -9138,8 +9154,8 @@ class lf_tests(lf_libs):
             #                                                                enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -9472,8 +9488,8 @@ class lf_tests(lf_libs):
             #                                                                 enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -9816,8 +9832,8 @@ class lf_tests(lf_libs):
             #                                                                 enable_11v=True)
 
             # -------------------- Start AMQP Log Capture --------------------
-            self.start_hostapd_logging(get_target_object)
-            self.start_amqp_log_capture(get_target_object)
+            self.start_hostapd_logging(get_target_object, get_testbed_details)
+            self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
