@@ -2049,7 +2049,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return False, 'Found NO connectivity between stations/Upstream'
+                return False, {"error": "Stations are not Pinging Each other"}
 
         elif test_type == "post_assoc":
             """
@@ -2408,7 +2408,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return False, 'Stations are not Pinging Each other'
+                return False, {"error": "Stations are not Pinging Each other"}
 
         elif test_type == "neither_band_post_assoc":
             """
@@ -2754,7 +2754,7 @@ class lf_tests(lf_libs):
                     "per_client": test_results
                 }
             else:
-                return False, 'Stations are not Pinging Each other'
+                return False, {"error": "Stations are not Pinging Each other"}
 
         elif test_type == "stickiness":
             """
@@ -2834,7 +2834,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten("1.1.3002", 400, idx - 1)
                 band_steer.set_atten("1.1.3002", 0, idx - 3)
 
-            band_steer.start_sniffer(ssid=ssid, password=passkey, security=security)
+            band_steer.start_sniffer()
             # get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
 
             # -------------------- STA Creation --------------------
@@ -3130,7 +3130,7 @@ class lf_tests(lf_libs):
             all_iteration_results = []
 
             # Start sniffer
-            band_steer.start_sniffer(ssid=ssid, password=passkey, security=security)
+            band_steer.start_sniffer()
 
             # Create STA1 (2.4GHz) - using first radio
             sta_list_1 = band_steer.get_sta_list_before_creation(
@@ -3258,7 +3258,7 @@ class lf_tests(lf_libs):
             print(f"[DEBUG] Connectivity status : {ping_status}")
 
             if not ping_status:
-                return False, 'Stations are not Pinging Each other'
+                return False, {"error": "Stations are not Pinging Each other"}
 
             for iteration in range(1, total_iterations + 1):
                 print(f"\n{'=' * 60}")
@@ -3671,7 +3671,7 @@ class lf_tests(lf_libs):
             # -------------------- Ping Status --------------------
             print(f"[DEBUG] Connectivity status : {ping_status}")
             if not ping_status:
-                return False, 'Stations are not Pinging Each other'
+                return False, {"error": "Stations are not Pinging Each other"}
 
             band_steer.create_specific_cx(station_list=sta_list_1)
             band_steer.start_traffic_cx()
@@ -4856,7 +4856,7 @@ class lf_tests(lf_libs):
                 }
 
             else:
-                return False, 'Stations are not Pinging Each other'
+                return False, {"error": "Stations are not Pinging Each other"}
 
         elif test_type == "management_vlan_data_vlan_client_isolation":
             """
