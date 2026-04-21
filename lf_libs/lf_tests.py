@@ -927,7 +927,7 @@ class lf_tests(lf_libs):
                     f"Band: {roam['from_band']} → {roam['to_band']}",
                 ]
 
-            return "FAIL_BAND_STEERING", ["No roam detected after BTM"]
+            return "FAIL_BAND_STEERING", ["No Steer detected after BTM"]
 
         def analyze_11r_roaming(events, protocols):
             if not protocols['11r']['enabled']:
@@ -6551,7 +6551,7 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.TEXT
             )
 
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
@@ -6683,7 +6683,7 @@ class lf_tests(lf_libs):
             # To reassociate back to AP1
             time.sleep(20)
 
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
@@ -7027,7 +7027,7 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roam")
 
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
@@ -7344,7 +7344,7 @@ class lf_tests(lf_libs):
             )
 
             # -------------------- Validate Initial Band --------------------
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
@@ -7670,7 +7670,7 @@ class lf_tests(lf_libs):
             )
 
             # -------------------- Validate Initial Band --------------------
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
@@ -8472,7 +8472,7 @@ class lf_tests(lf_libs):
                 attachment_type=allure.attachment_type.TEXT
             )
 
-            print(f"\nStarting band steering test...")
+            print(f"\nStarting Roaming test...")
             before_bssid = band_steer.get_bssids(as_dict=True)
             before_chan = band_steer.get_channel(as_dict=True)
             before_rssi = band_steer.get_rssi(as_dict=True)
