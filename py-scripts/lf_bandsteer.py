@@ -1118,14 +1118,24 @@ class BandSteer(Realm):
             #     if option == "otds":
             #         print("OTDS present")
             # 11kvr => k : neighboring AP so ds enabled 1
+            key_mgmt = "FT-PSK"
             self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
+            if security == "wpa3":
+                self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
+                key_mgmt = "FT-SAE"
+            if security == "wpa":
+                self.station_profile.set_command_flag("add_sta", "ieee80211w", 1)
+                key_mgmt = "WPA-PSK"
+
             # self.station_profile.set_command_flag("add_sta", "power_save_enable", 1)
-            self.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
+            self.station_profile.set_wifi_extra(key_mgmt=key_mgmt,
                                                 psk=passwd)
 
         if sta_type == "11r_enterprise":
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             self.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
+            if security == "wpa3":
+                self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
             self.station_profile.set_wifi_extra(key_mgmt="FT-EAP",
                                                 identity="testuser",
                                                 eap="TTLS",
@@ -1135,38 +1145,12 @@ class BandSteer(Realm):
             self.station_profile.set_command_flag("add_sta", "ieee80211w", 2)
             self.station_profile.set_command_flag("add_sta", "80211u_enable", 0)
             self.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
-            if not self.soft_roam:
-                self.station_profile.set_command_flag("add_sta", "disable_roam", 1)
-            if self.soft_roam:
-                if option == "otds":
-                    self.station_profile.set_command_flag(
-                        "add_sta", "ft-roam-over-ds", 1)
             self.station_profile.set_command_flag("add_sta", "power_save_enable", 1)
-            self.station_profile.set_wifi_extra(key_mgmt="FT-SAE",
-                                                pairwise="",
-                                                group="",
-                                                psk="",
-                                                eap="",
-                                                identity="",
-                                                passwd="",
-                                                pin="",
-                                                phase1="NA",
-                                                phase2="NA",
-                                                pac_file="NA",
-                                                private_key="NA",
-                                                pk_password="NA",
-                                                hessid="00:00:00:00:00:01",
-                                                realm="localhost.localdomain",
-                                                client_cert="NA",
-                                                imsi="NA",
-                                                milenage="NA",
-                                                domain="localhost.localdomain",
-                                                roaming_consortium="NA",
-                                                venue_group="NA",
-                                                network_type="NA",
-                                                ipaddr_type_avail="NA",
-                                                network_auth_type="NA",
-                                                anqp_3gpp_cell_net="NA")
+            self.station_profile.set_wifi_extra(key_mgmt="FT-EAP",
+                                                identity="testuser",
+                                                eap="TTLS",
+                                                passwd="testpasswd",
+                                                )
 
         if sta_type == "11r-sae-802.1x":
             self.station_profile.set_command_flag("set_port", "rpt_timer", 1)
