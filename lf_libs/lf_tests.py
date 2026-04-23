@@ -6012,7 +6012,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -6100,8 +6100,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     return False, 'BSSID/Channel are not matched after attenuation applied'
@@ -6348,7 +6348,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -6573,7 +6573,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -6705,7 +6705,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -6794,8 +6794,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -7049,7 +7049,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -7146,8 +7146,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -7366,7 +7366,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -7472,8 +7472,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -7692,7 +7692,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -7798,8 +7798,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -8091,7 +8091,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -8212,8 +8212,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -8494,7 +8494,7 @@ class lf_tests(lf_libs):
                     "rssi": before_rssi.get(sta)
                 }
 
-            print(f"[DEBUG] Before Steer Station Info")
+            print(f"[DEBUG] Before roam Station Info")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -8873,7 +8873,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -8994,8 +8994,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -9208,7 +9208,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -9328,8 +9328,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -9541,7 +9541,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -9669,8 +9669,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
@@ -9884,7 +9884,7 @@ class lf_tests(lf_libs):
                     "channel": before_chan.get(sta),
                     "rssi": before_rssi.get(sta)
                 }
-            print(f"[DEBUG] Before Steer Station Info {before_state}")
+            print(f"[DEBUG] Before roam Station Info {before_state}")
             allure.attach(
                 body=json.dumps(before_state, indent=4),
                 name="Before Roam Station BSSID & Channel",
@@ -10012,8 +10012,8 @@ class lf_tests(lf_libs):
                 before_rssi = result.get("before_rssi")
                 after_rssi = result.get("after_rssi")
 
-                print(f"[DEBUG] BEFORE Steer RSSI {before_rssi}")
-                print(f"[DEBUG] AFTER Steer RSSI {after_rssi}")
+                print(f"[DEBUG] BEFORE roam RSSI {before_rssi}")
+                print(f"[DEBUG] AFTER roam RSSI {after_rssi}")
 
                 if before_bssid == after_bssid:
                     functional_failures.append({
