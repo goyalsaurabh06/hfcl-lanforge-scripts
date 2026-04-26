@@ -1706,7 +1706,7 @@ class BandSteer(Realm):
                 except Exception:
                     pass
 
-                self.filter = "wlan type mgt"
+                self.filter = "wlan type mgt or wlan type data"
                 self.output_file = "/tmp/combined_sniffer.pcapng"
 
                 # Remove old artifacts
