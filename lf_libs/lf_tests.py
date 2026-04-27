@@ -81,6 +81,8 @@ except ModuleNotFoundError:
     spec = importlib.util.spec_from_file_location("lf_tx_power", tx_power_path)
     lf_tx_power = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lf_tx_power)
+
+
 class lf_tests(lf_libs):
     """
         lf_tools is needed in lf_tests to do various operations needed by various tests
@@ -91,8 +93,6 @@ class lf_tests(lf_libs):
         super().__init__(lf_data, dut_data, run_lf, log_level)
         self.local_report_path = local_report_path
         self.influx_params = influx_params
-
-
 
     def run_tx_power_test(self, tx_config, get_target_object, get_testbed_details):
         """
@@ -205,7 +205,7 @@ class lf_tests(lf_libs):
         # WLAN related (script expects these names)
         tx_config.setdefault("wlan", "NA")
         tx_config.setdefault("wlan_id", "NA")
-        #tx_config.setdefault("wlan_ssid", tx_config.get("ssid"))
+        # tx_config.setdefault("wlan_ssid", tx_config.get("ssid"))
 
         # Optional but often used
         tx_config.setdefault("create_wlan", False)
@@ -240,8 +240,8 @@ class lf_tests(lf_libs):
         tx_config.setdefault("wait_forever", False)
         tx_config.setdefault("show_lf_portmod", False)
         tx_config.setdefault("testbed_id", None)
-        tx_config.setdefault("testbed_location",  "default location")
-        tx_config.setdefault("ap_info",[])
+        tx_config.setdefault("testbed_location", "default location")
+        tx_config.setdefault("ap_info", [])
         tx_config.setdefault("module", None)
         tx_config.setdefault("module_scrapli", False)
         tx_config.setdefault("timeout", "3")
@@ -258,7 +258,6 @@ class lf_tests(lf_libs):
         tx_config.setdefault("tx_power_adjust_6E", False)
         tx_config.setdefault("mtk7921k", False)
         tx_config.setdefault("mtk7921k_beacon", False)
-
 
         # ---------------------------------------------------
         # Execute TX power script
@@ -308,7 +307,6 @@ class lf_tests(lf_libs):
 
         logging.info("TX Power report attached successfully")
 
-
         # ------------------------------------------------
         # KPI PASS/FAIL validation (FINAL LOGIC)
         # ------------------------------------------------
@@ -356,7 +354,6 @@ class lf_tests(lf_libs):
 
         return True
 
-
     def analyze_sniffer_pcap(
             self,
             pcap_path: str,
@@ -365,6 +362,7 @@ class lf_tests(lf_libs):
             mode: str = "band_steering",
             check_protocol: str = None,  # New: "11k", "11v", "11r", or None for all
             window: float = 15.0,
+            bssid_list: list = None,
             show_events: bool = False,
             frame_view: bool = True,
     ):
@@ -386,12 +384,13 @@ class lf_tests(lf_libs):
             "PASS_11R_ROAM",
             "PASS_11KV_ROAMING",
             "PASS_11KVR_ROAMING",
-            "PASS_11KR_ROAMING",
+            "PASS_11KR",
             "PASS_11R_FT_ONLY",
             "PASS_BAND_STEERING_CLIENT_DRIVEN",
-            "PASS_11K_ONLY",
-            "PASS_11V_ONLY",
-            "PASS_11R_ONLY",
+            "PASS_ROAM_DETECTED",
+            "PASS_11K_CAPABILITY",
+            "PASS_11K_ACTION_FRAME",
+            "PASS_11VR_BEACON",
         }
 
         def norm(x):
@@ -473,31 +472,32 @@ class lf_tests(lf_libs):
 
         def build_static_logic_reference():
             return """
+ANALYSIS LOGIC REFERENCE:
 
-        ANALYSIS LOGIC REFERENCE:
+BAND STEERING:
+  - Detect BTM Request (11v)
+  - Check client moves to different BSSID
+  - Validate band transition (2.4G ↔ 5G/6G)
 
-        BAND STEERING:
-          - Detect BTM Request (11v)
-          - Check client moves to different BSSID
-          - Validate band transition (2.4G ↔ 5G/6G)
+802.11k:
+  - RRM frames (category_code = 5)
+  - Neighbor Report IE (tag 52)
+  - RM Capabilities in beacon frame
 
-        802.11k:
-          - RRM frames (category_code = 5)
-          - Neighbor Report IE (tag 52)
+802.11v:
+  - BTM Request/Response (category_code = 10)
+  - Extended Capabilities IE (tag 127)
 
-        802.11v:
-          - BTM Request/Response (category_code = 10)
-          - Extended Capabilities IE (tag 127)
+802.11r:
+  - FT Authentication (auth_alg = 2)
+  - Mobility Domain IE (tag 54)
+  - RSN FT AKM (tag 48)
 
-        802.11r:
-          - FT Authentication (auth_alg = 2)
-          - Mobility Domain IE (tag 54)
-          - RSN FT AKM (tag 48)
-
-        ROAM DETECTION:
-          - BSSID transition within time window
-          - Assoc Response OR FT Authentication
+ROAM DETECTION:
+  - BSSID transition within time window
+  - Assoc Response OR FT Authentication
             """
+
         # -------------------------------
         # TSHARK - Enhanced for 11k/11v/11r (supports client MAC or BSSID)
         # -------------------------------
@@ -509,9 +509,9 @@ class lf_tests(lf_libs):
                 cmac = norm(client_mac)
                 filter_parts.append(f'wlan.addr == {cmac}')
 
-            if bssid:
-                bssid_norm = norm(bssid)
-                filter_parts.append(f'wlan.bssid == {bssid_norm}')
+            if bssid_list:
+                bssid_filter = " || ".join([f"wlan.bssid == {b}" for b in bssid_list])
+                filter_parts.append(f"({bssid_filter})")
 
             # If no specific filter, analyze all relevant frames
             if not filter_parts:
@@ -520,10 +520,12 @@ class lf_tests(lf_libs):
             # Build protocol-specific filter if check_protocol is specified
             protocol_filter_parts = []
             if check_protocol == "11k":
-                protocol_filter_parts.append('wlan.fixed.category_code == 5')  # RRM frames
+                protocol_filter_parts.append(
+                    '(wlan.fixed.category_code == 5 && (wlan.fixed.action_code == 0 || wlan.fixed.action_code == 1))')  # RRM frames
                 protocol_filter_parts.append('wlan.tag.number == 52')  # Neighbor Report IE
             elif check_protocol == "11v":
-                protocol_filter_parts.append('wlan.fixed.category_code == 10')  # BTM frames
+                protocol_filter_parts.append(
+                    '(wlan.fixed.category_code == 10 && (wlan.fixed.action_code == 6 || wlan.fixed.action_code == 7 || wlan.fixed.action_code == 8))')
                 protocol_filter_parts.append('wlan.tag.number == 127')  # Extended Capabilities
             elif check_protocol == "11r":
                 protocol_filter_parts.append('wlan.fixed.auth_alg == 2')  # FT Authentication
@@ -540,14 +542,17 @@ class lf_tests(lf_libs):
             else:
                 frame_filter = (
                     f'({" || ".join(filter_parts)}) && ('
+                    f'wlan.fc.type == 2 || '  # DATA FRAMES
                     f'wlan.fc.type_subtype == 0 || '  # Assoc Req
                     f'wlan.fc.type_subtype == 1 || '  # Assoc Resp
-                    f'wlan.fc.type_subtype == 2 || '  # Reassoc Req
-                    f'wlan.fc.type_subtype == 3 || '  # Reassoc Resp
+                    f'wlan.fc.type_subtype == 2 || '  # Re-assoc Req
+                    f'wlan.fc.type_subtype == 3 || '  # Re-assoc Resp
                     f'wlan.fc.type_subtype == 4 || '  # Probe Req
                     f'wlan.fc.type_subtype == 5 || '  # Probe Resp
                     f'wlan.fc.type_subtype == 8 || '  # Beacon
+                    f'wlan.fc.type_subtype == 10 || '  # Disassoc
                     f'wlan.fc.type_subtype == 11 || '  # Auth
+                    f'wlan.fc.type_subtype == 12 || '  # Deauth
                     f'wlan.fc.type_subtype == 13 || '  # Action
                     f'wlan.fixed.category_code == 5 || '  # RRM (11k)
                     f'wlan.fixed.category_code == 10 || '  # BTM (11v)
@@ -568,6 +573,7 @@ class lf_tests(lf_libs):
                 "-e", "wlan.da",
                 "-e", "wlan.bssid",
                 "-e", "wlan.ssid",
+                "-e", "wlan.fc.type",
                 "-e", "wlan.fc.type_subtype",
                 "-e", "wlan.fixed.auth.alg",
                 "-e", "wlan.fixed.category_code",
@@ -585,11 +591,11 @@ class lf_tests(lf_libs):
             frames = []
             lines = out.stdout.strip().split('\n')
             if not lines or len(lines) < 2:
-                return frames
+                return [], frame_filter
 
             for line in lines[1:]:
                 values = line.split('|')
-                if len(values) < 16:
+                if len(values) < 17:
                     continue
 
                 try:
@@ -607,25 +613,171 @@ class lf_tests(lf_libs):
                     "da": norm(clean_quoted_value(values[5] if len(values) > 5 else "")),
                     "bssid": norm(clean_quoted_value(values[6] if len(values) > 6 else "")),
                     "ssid": decode_ssid(values[7] if len(values) > 7 else ""),
-                    "subtype": parse_int(clean_quoted_value(values[8] if len(values) > 8 else "")),
-                    "auth_alg": clean_quoted_value(values[9] if len(values) > 9 else ""),
-                    "cat": parse_int(clean_quoted_value(values[10] if len(values) > 10 else "")),
-                    "action": parse_int(clean_quoted_value(values[11] if len(values) > 11 else "")),
-                    "channel": clean_quoted_value(values[12] if len(values) > 12 else ""),
-                    "info": clean_quoted_value(values[13] if len(values) > 13 else ""),
-                    "tag_numbers": clean_quoted_value(values[14] if len(values) > 14 else ""),
-                    "mobility_domain": clean_quoted_value(values[15] if len(values) > 15 else ""),
+                    # "subtype": parse_int(clean_quoted_value(values[8] if len(values) > 8 else "")),
+                    "type": parse_int(clean_quoted_value(values[8])),
+                    "subtype": parse_int(clean_quoted_value(values[9])),
+                    "auth_alg": clean_quoted_value(values[10]),
+                    "cat": parse_int(clean_quoted_value(values[11])),
+                    "action": parse_int(clean_quoted_value(values[12])),
+                    "channel": clean_quoted_value(values[13]),
+                    "info": clean_quoted_value(values[14]),
+                    "tag_numbers": clean_quoted_value(values[15]),
+                    "mobility_domain": clean_quoted_value(values[16]) if len(values) > 16 else "",
+                    # "auth_alg": clean_quoted_value(values[9] if len(values) > 9 else ""),
+                    # "cat": parse_int(clean_quoted_value(values[10] if len(values) > 10 else "")),
+                    # "action": parse_int(clean_quoted_value(values[11] if len(values) > 11 else "")),
+                    # "channel": clean_quoted_value(values[12] if len(values) > 12 else ""),
+                    # "info": clean_quoted_value(values[13] if len(values) > 13 else ""),
+                    # "tag_numbers": clean_quoted_value(values[14] if len(values) > 14 else ""),
+                    # "mobility_domain": clean_quoted_value(values[15] if len(values) > 15 else ""),
                 })
 
             return sorted(frames, key=lambda x: x["ts"]), frame_filter
 
-        # -------------------------------
-        # PROTOCOL DETECTION (with deduplication)
-        # -------------------------------
+        def is_rrm_enabled_in_beacon(frames):
+            for f in frames:
+                if f["subtype"] == 8:  # Beacon
+                    tags = parse_tag_numbers(f.get("tag_numbers", ""))
+                    if "70" in tags:
+                        return True
+            return False
+
+        def calculate_all_roam_times(events):
+            """
+            Detect multiple roam events and calculate roam time for each
+
+            Returns:
+                list of roam events with timing
+            """
+
+            roam_results = []
+
+            for i, ev in enumerate(events):
+
+                # ---------------------------
+                # CASE 2: FT ROAM (11r)
+                # ---------------------------
+                if ev["kind"] == "ft_auth" and ev.get("type") == "request":
+                    start = ev["ts"]
+
+                    if roam_results and abs(roam_results[-1]["start_ts"] - start) < 0.05:
+                        continue
+
+                    for j in range(i, len(events)):
+                        if events[j]["kind"] in ["reassoc_resp", "assoc_resp"]:
+                            end = events[j]["ts"]
+
+                            roam_results.append({
+                                "type": "FT",
+                                "roam_time_ms": round((end - start) * 1000, 2),
+                                "start_ts": start,
+                                "end_ts": end
+                            })
+                            break
+
+                # ---------------------------
+                # CASE 1: NON-FT ROAM
+                # ---------------------------
+                elif ev["kind"] in ["assoc_req", "reassoc_req"]:
+                    start = ev["ts"]
+
+                    if roam_results and abs(roam_results[-1]["start_ts"] - start) < 0.05:
+                        continue
+
+                    for j in range(i, len(events)):
+                        if events[j]["kind"] in ["assoc_resp", "reassoc_resp"]:
+                            end = events[j]["ts"]
+
+                            roam_results.append({
+                                "type": "NON_FT",
+                                "roam_time_ms": round((end - start) * 1000, 2),
+                                "start_ts": start,
+                                "end_ts": end
+                            })
+                            break
+
+            return roam_results
+
+        def calculate_data_roam_time(events):
+            """
+            Calculate roam time:
+            last DATA on old BSSID → first DATA on new BSSID
+            """
+
+            data_events = [e for e in events if e["kind"] == "data"]
+
+            if not data_events:
+                return []
+
+            roam_results = []
+
+            for i in range(1, len(data_events)):
+                prev = data_events[i - 1]
+                curr = data_events[i]
+
+                if prev["bssid"] != curr["bssid"]:
+                    roam_time = (curr["ts"] - prev["ts"]) * 1000
+
+                    roam_results.append({
+                        "from_bssid": prev["bssid"],
+                        "to_bssid": curr["bssid"],
+                        "roam_time_ms": round(roam_time, 2),
+                        "start_ts": prev["ts"],
+                        "end_ts": curr["ts"]
+                    })
+
+            return roam_results
+
+        def check_no_eapol_on_target_ap(frames, events):
+            """
+            Validate that no EAPOL exchange happens on target AP after roam
+            """
+
+            # Step 1: detect roam transition
+            roam = detect_roam_attempt(events)
+
+            if not roam.get("roamed"):
+                return {
+                    "status": False,
+                    "reason": "No roam detected"
+                }
+
+            target_bssid = roam["to_bssid"]
+            roam_time = roam["trigger_ts"]
+
+            # Step 2: find EAPOL frames after roam on target AP
+            eapol_frames = []
+
+            for f in frames:
+                if f["bssid"] == target_bssid and f["ts"] >= roam_time:
+                    info = f.get("info", "").lower()
+
+                    if "eapol" in info or "key" in info:
+                        eapol_frames.append(f)
+
+            if eapol_frames:
+                return {
+                    "status": False,
+                    "reason": f"EAPOL detected on target AP ({target_bssid})",
+                    "count": len(eapol_frames)
+                }
+
+            return {
+                "status": True,
+                "reason": f"No EAPOL on target AP ({target_bssid})"
+            }
+
         def detect_protocols(frames):
             """Detect 11k, 11v, 11r capabilities from frames with deduplication"""
+
             protocols = {
-                '11k': {'enabled': False, 'frames': [], 'details': set()},
+                '11k': {
+                    'enabled': False,
+                    'capability': False,
+                    'action': False,
+                    'frames': [],  # ONLY action frames
+                    'details': set()
+                },
                 '11v': {'enabled': False, 'frames': [], 'details': set()},
                 '11r': {'enabled': False, 'frames': [], 'details': set()},
             }
@@ -635,74 +787,124 @@ class lf_tests(lf_libs):
             for f in frames:
                 tags = parse_tag_numbers(f.get("tag_numbers", ""))
 
-                # 11k detection (RRM)
-                if f["cat"] == 5:
-                    if f["no"] not in seen_frames['11k']:
-                        protocols['11k']['enabled'] = True
-                        protocols['11k']['frames'].append(f)
-                        seen_frames['11k'].add(f["no"])
-                    protocols['11k']['details'].add(f"RRM frame (action={f['action']})")
+                if bssid_list and f["bssid"] not in bssid_list:
+                    continue
 
-                # Neighbor Report IE (tag 52) indicates 11k
+                # =====================================================
+                # ✅ 802.11k CAPABILITY (Beacon / IE based)
+                # =====================================================
+                if "70" in tags:
+                    protocols['11k']['capability'] = True
+                    protocols['11k']['enabled'] = True
+                    protocols['11k']['details'].add(f"{f['bssid']} => RM Enabled Capabilities IE")
+
                 if "52" in tags:
+                    protocols['11k']['capability'] = True
+                    protocols['11k']['enabled'] = True
+                    protocols['11k']['details'].add(f"{f['bssid']} => Neighbor Report IE")
+
+                # =====================================================
+                # ✅ 802.11k ACTION (STRICT CHECK)
+                # =====================================================
+                if f["cat"] == 5 and f["action"] in [0, 1]:
+                    protocols['11k']['action'] = True
+                    protocols['11k']['enabled'] = True
+
                     if f["no"] not in seen_frames['11k']:
-                        protocols['11k']['enabled'] = True
                         protocols['11k']['frames'].append(f)
                         seen_frames['11k'].add(f["no"])
-                    protocols['11k']['details'].add("Neighbor Report IE")
 
-                # 11v detection (BTM)
-                if f["cat"] == 10:
+                    protocols['11k']['details'].add(
+                        f"{f['bssid']} => RRM action (action={f['action']})"
+                    )
+
+                # =====================================================
+                # ✅ 802.11v (BTM)
+                # =====================================================
+                if f["cat"] == 10 and f["action"] in [6, 7, 8]:
                     if f["no"] not in seen_frames['11v']:
                         protocols['11v']['enabled'] = True
                         protocols['11v']['frames'].append(f)
                         seen_frames['11v'].add(f["no"])
-                    action_name = {8: "Query", 6: "Request", 7: "Response"}.get(f["action"], f"action={f['action']}")
-                    protocols['11v']['details'].add(f"BTM {action_name}")
 
-                # Extended Capabilities IE (tag 127) may indicate BTM support
+                    action_name = {
+                        8: "Query",
+                        6: "Request",
+                        7: "Response"
+                    }.get(f["action"], f"action={f['action']}")
+
+                    protocols['11v']['details'].add(
+                        f"{f['bssid']} => BTM {action_name}"
+                    )
+
                 if "127" in tags:
                     protocols['11v']['details'].add("Extended Capabilities IE")
 
-                # 11r detection (Fast Transition)
-                if f.get("auth_alg") == "2":
+                # =====================================================
+                # ✅ 802.11r (FT)
+                # =====================================================
+                if str(f.get("auth_alg")) == "2":
                     if f["no"] not in seen_frames['11r']:
                         protocols['11r']['enabled'] = True
                         protocols['11r']['frames'].append(f)
                         seen_frames['11r'].add(f["no"])
-                    protocols['11r']['details'].add("FT Authentication")
 
-                # Mobility Domain IE (tag 54)
+                    protocols['11r']['details'].add(
+                        f"{f['bssid']} => FT Authentication"
+                    )
+
                 if "54" in tags:
                     if f["no"] not in seen_frames['11r']:
                         protocols['11r']['enabled'] = True
                         protocols['11r']['frames'].append(f)
                         seen_frames['11r'].add(f["no"])
-                    md_info = f"MDID={f.get('mobility_domain', '')}" if f.get('mobility_domain') else "present"
-                    protocols['11r']['details'].add(f"Mobility Domain IE ({md_info})")
 
-                # RSN IE with FT AKM (tag 48)
+                    md_info = (
+                        f"MDID={f.get('mobility_domain', '')}"
+                        if f.get('mobility_domain') else "present"
+                    )
+
+                    protocols['11r']['details'].add(
+                        f"{f['bssid']} => Mobility Domain IE ({md_info})"
+                    )
+
                 if "48" in tags:
-                    protocols['11r']['details'].add("RSN IE with potential FT AKM")
+                    protocols['11r']['details'].add(
+                        f"{f['bssid']} => RSN IE (FT possible)"
+                    )
 
-            # Convert sets to lists for output
+            # Convert sets → lists
             for proto in protocols:
                 protocols[proto]['details'] = list(protocols[proto]['details'])
 
             return protocols
 
-        # -------------------------------
-        # EVENT EXTRACTION
-        # -------------------------------
-        def extract_events(frames, protocols):
-            events = []
-            ft_auth_pairs = {}  # Track FT auth requests by frame number
+        def extract_events(frames):
+            """
+                Extracts meaningful Wi-Fi protocol events from parsed frame data.
 
+                This function scans through captured frames and converts low-level
+                802.11 fields into structured, time-ordered events for analysis.
+
+                It identifies:
+                - 802.11v BTM events (request, response, query)
+                - 802.11k RRM action frames
+                - Association and reassociation (request/response)
+                - 802.11r FT authentication (request/response)
+                - Disassociation and deauthentication events
+
+                Each event includes timestamp, frame number, band, and BSSID,
+                enabling higher-level roaming and steering analysis.
+
+                Returns:
+                    List[dict]: Chronologically sorted list of extracted events
+            """
+            events = []
             for f in frames:
                 band = band_from_channel(f["channel"])
 
                 # 11v (BTM) events
-                if f["cat"] == 10:
+                if f["cat"] == 10 and f["action"] in [6, 7, 8]:
                     if f["action"] == 6:
                         events.append({
                             "kind": "btm_request",
@@ -729,7 +931,7 @@ class lf_tests(lf_libs):
                         })
 
                 # 11k events
-                if f["cat"] == 5:
+                if f["cat"] == 5 and f["action"] in [0, 1]:
                     events.append({
                         "kind": "rrm_frame",
                         "ts": f["ts"],
@@ -738,10 +940,10 @@ class lf_tests(lf_libs):
                         "bssid": f["bssid"]
                     })
 
-                # Association events
+                # Association/Reassociation events
                 if f["subtype"] in [0, 2]:
                     events.append({
-                        "kind": "assoc_req",
+                        "kind": "assoc_req" if f["subtype"] == 0 else "reassoc_req",
                         "ts": f["ts"],
                         "frame": f["no"],
                         "band": band,
@@ -750,7 +952,7 @@ class lf_tests(lf_libs):
 
                 if f["subtype"] in [1, 3]:
                     events.append({
-                        "kind": "assoc_resp",
+                        "kind": "assoc_resp" if f["subtype"] == 1 else "reassoc_resp",
                         "ts": f["ts"],
                         "frame": f["no"],
                         "band": band,
@@ -758,7 +960,7 @@ class lf_tests(lf_libs):
                     })
 
                 # 11r FT Auth events - track both request and response
-                if f.get("auth_alg") == "2":
+                if str(f.get("auth_alg")) == "2":
                     # Check if this is an FT authentication frame
                     # seq=1 usually indicates response, seq=0 or missing indicates request
                     if "response" in f.get("info", "").lower() or "seq=1" in f.get("info", ""):
@@ -782,49 +984,43 @@ class lf_tests(lf_libs):
                             "type": "request"
                         })
 
+                # De-Auth and Dis-assoc
+                if f["subtype"] == 10:
+                    events.append({
+                        "kind": "disassoc",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
+
+                if f["subtype"] == 12:
+                    events.append({
+                        "kind": "deauth",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
+
+                # DATA frames
+                if f.get("type") == 2:
+                    events.append({
+                        "kind": "data",
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"]
+                    })
+
             return sorted(events, key=lambda x: x["ts"])
 
-        # -------------------------------
-        # ROAM DETECTION
-        # -------------------------------
         def detect_prior_connection(events, idx):
             """Walk backwards to find the last confirmed association"""
             for j in range(idx - 1, -1, -1):
                 if events[j]["kind"] in {"assoc_resp"} and events[j].get("bssid"):
                     return events[j]
             return None
-        #
-        # def detect_roam_attempt(events, window_sec=15.0):
-        #     """Detect BSSID transition with completion evidence"""
-        #     for i, ev in enumerate(events):
-        #         if ev["kind"] not in {"assoc_req", "assoc_resp", "ft_auth"}:
-        #             continue
-        #
-        #         target_bssid = ev.get("bssid")
-        #         if not target_bssid:
-        #             continue
-        #
-        #         prior = detect_prior_connection(events, i)
-        #         if not prior or not prior.get("bssid") or prior["bssid"] == target_bssid:
-        #             continue
-        #
-        #         # Look for completion
-        #         start_ts = ev["ts"]
-        #         for j in range(i, len(events)):
-        #             nxt = events[j]
-        #             if nxt["ts"] - start_ts > window_sec:
-        #                 break
-        #             if nxt["kind"] == "assoc_resp" and nxt.get("bssid") == target_bssid:
-        #                 return {
-        #                     "roamed": True,
-        #                     "from_bssid": prior["bssid"],
-        #                     "to_bssid": target_bssid,
-        #                     "from_band": prior["band"],
-        #                     "to_band": ev["band"],
-        #                     "trigger_ts": ev["ts"]
-        #                 }
-        #
-        #     return {"roamed": False}
 
         def detect_roam_attempt(events, window_sec=15.0):
             """Detect BSSID transition - works with both classic and FT roaming"""
@@ -902,9 +1098,6 @@ class lf_tests(lf_libs):
 
             return {"roamed": False}
 
-        # -------------------------------
-        # MODE-SPECIFIC ANALYSIS
-        # -------------------------------
         def analyze_band_steering(events):
             btm_reqs = [e for e in events if e["kind"] == "btm_request"]
             btm_resps = [e for e in events if e["kind"] == "btm_response"]
@@ -967,7 +1160,66 @@ class lf_tests(lf_libs):
 
             return "FAIL_11KV_NO_ROAM", ["No roam transition detected"]
 
-        def analyze_11kvr_roaming(events, protocols):
+        def analyze_11k(frames):
+            rrm_beacon = is_rrm_enabled_in_beacon(frames)
+
+            if not rrm_beacon:
+                return "FAIL_NO_11K_BEACON", [
+                    "RRM Enabled Capabilities IE (tag 70) not present in Beacon frames"
+                ]
+
+            return "PASS_11K_CAPABILITY", [
+                "RRM Enabled Capabilities IE detected in Beacon frames",
+                "802.11k capability is advertised by AP"
+            ]
+
+        def analyze_11k_action_frame(events):
+            rrm_frames = [e for e in events if e["kind"] == "rrm_frame"]
+
+            if not rrm_frames:
+                return "FAIL_11K_NO_ACTION_FRAME", [
+                    "No valid 802.11k RRM action frames found"
+                ]
+
+            return "PASS_11K_ACTION_FRAME", [
+                f"Detected {len(rrm_frames)} RRM action frames",
+                "802.11k action frame observed"
+            ]
+
+        def analyze_11vr_beacon(frames, events):
+            has_11v = False
+            has_11r = False
+
+            for f in frames:
+                if f["subtype"] != 8:  # Beacon only
+                    continue
+
+                tags = parse_tag_numbers(f.get("tag_numbers", ""))
+
+                # 11v check → Extended Capabilities (Tag 127)
+                if "127" in tags:
+                    has_11v = True
+
+                # 11r check → Mobility Domain (Tag 54)
+                if "54" in tags:
+                    has_11r = True
+
+            if has_11v and has_11r:
+                return "PASS_11VR_BEACON", [
+                    "Extended Capabilities IE (Tag 127) present in Beacon",
+                    "Mobility Domain IE (Tag 54) present in Beacon",
+                    "802.11v and 802.11r capabilities are advertised"
+                ]
+
+            details = []
+            if not has_11v:
+                details.append("802.11v not detected: Extended Capabilities IE (Tag 127) missing in Beacon")
+            if not has_11r:
+                details.append("802.11r not detected: Mobility Domain IE (Tag 54) missing in Beacon")
+
+            return "FAIL_11VR_BEACON", details
+
+        def analyze_11kvr_roaming(events, protocols, frames):
             has_k = protocols['11k']['enabled']
             has_v = protocols['11v']['enabled']
             has_r = protocols['11r']['enabled']
@@ -982,12 +1234,38 @@ class lf_tests(lf_libs):
 
             if has_k and has_v and has_r:
                 roam = detect_roam_attempt(events)
+                md_present = False
+
                 if roam.get("roamed"):
-                    return "PASS_11KVR_ROAMING", [
-                        f"All three protocols observed: {', '.join(present)}",
-                        f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
-                        f"Band: {roam['from_band']} → {roam['to_band']}",
-                    ]
+                    target_bssid = roam["to_bssid"]
+                    roam_ts = roam["trigger_ts"]
+
+                    for f in frames:
+                        if f["bssid"] == target_bssid and f["ts"] >= roam_ts:
+                            if f["subtype"] in [2, 3]:  # reassoc
+                                tags = parse_tag_numbers(f.get("tag_numbers", ""))
+                                if "54" in tags:
+                                    md_present = True
+                                    break
+
+                if roam.get("roamed"):
+                    if md_present:
+                        return "PASS_11KVR_ROAMING", [
+                            f"All three protocols observed: {', '.join(present)}",
+                            f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
+                            f"Band: {roam['from_band']} → {roam['to_band']}",
+                            "Mobility Domain IE present in reassociation (11r OK)"
+                        ]
+                    else:
+                        return "FAIL_11R_NO_MD", [
+                            f"Protocols detected: {', '.join(present)}",
+                            "Roam detected but Mobility Domain IE missing in reassociation"
+                        ]
+                    # return "PASS_11KVR_ROAMING", [
+                    #     f"All three protocols observed: {', '.join(present)}",
+                    #     f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
+                    #     f"Band: {roam['from_band']} → {roam['to_band']}",
+                    # ]
                 return "WARN_11KVR_NO_ROAM", [
                     f"Protocols present: {', '.join(present)}",
                     "No BSSID transition detected"
@@ -1008,19 +1286,18 @@ class lf_tests(lf_libs):
             roam = detect_roam_attempt(events)
 
             if has_k and has_r:
-                if roam.get("roamed"):
-                    return "PASS_11KR_ROAMING", [
-                        f"11k: ✓ | 11r: ✓",
-                        f"Roam: {roam['from_bssid']} → {roam['to_bssid']}",
-                    ]
-                return "WARN_11KR_NO_ROAM", ["Protocols present but no roam detected"]
+                # if roam.get("roamed"):
+                return "PASS_11KR", [
+                    f"Both 11k and 11r were observed"
+                ]
+                # return "WARN_11KR_NO_ROAM", ["Protocols present but no roam detected"]
 
             return "WARN_11KR_PARTIAL", [
-                f"11k: {'✓' if has_k else '✗'} | 11r: {'✓' if has_r else '✗'}",
+                f"11k {'was observed' if has_k else 'was not observed'} | 11r {'was observed' if has_r else 'was not observed'}",
                 "Partial protocol support"
             ]
 
-        def analyze_multi_roam(events, protocols):
+        def analyze_multi_roam(events):
             roams = []
             seen_targets = set()
 
@@ -1061,9 +1338,6 @@ class lf_tests(lf_libs):
 
             return results
 
-        # -------------------------------
-        # PROTOCOL-SPECIFIC CHECK
-        # -------------------------------
         def check_specific_protocol(protocols, check_proto):
             """Check if a specific protocol is enabled and return appropriate result"""
             proto_map = {
@@ -1079,21 +1353,33 @@ class lf_tests(lf_libs):
             if not proto_info:
                 return "FAIL_INVALID_PROTOCOL", [f"Invalid protocol: {check_proto}"]
 
-            if proto_info["enabled"]:
-                return f"PASS_{check_proto.upper()}_ONLY", [
-                    f"{check_proto.upper()} protocol is enabled",
-                    f"Evidence: {', '.join(proto_info['details'][:3])}",
-                    f"Frames: {len(proto_info['frames'])}"
-                ]
+            if check_proto.lower() == "11k":
+                if protocols['11k']['action']:
+                    return "PASS_11K_ONLY", [
+                        "11k action frames detected",
+                        f"Frames: {len(protocols['11k']['frames'])}"
+                    ]
+                elif protocols['11k']['capability']:
+                    return "WARN_11K_CAPABILITY_ONLY", [
+                        "11k capability present but no action frames"
+                    ]
+                else:
+                    return "FAIL_11K_NOT_ENABLED", [
+                        "No 11k capability or action frames found"
+                    ]
             else:
+                if proto_info["enabled"]:
+                    return f"PASS_{check_proto.upper()}_ONLY", [
+                        f"{check_proto.upper()} protocol is enabled",
+                        f"Evidence: {', '.join(proto_info['details'][:3])}",
+                        f"Frames: {len(proto_info['frames'])}"
+                    ]
+
                 return f"FAIL_{check_proto.upper()}_NOT_ENABLED", [
                     f"{check_proto.upper()} protocol not detected",
                     "No supporting frames or IEs found"
                 ]
 
-        # -------------------------------
-        # COMPACT REPORT BUILDING
-        # -------------------------------
         def build_compact_protocol_summary(protocols):
             """Build deduplicated protocol summary"""
             lines = []
@@ -1127,31 +1413,34 @@ class lf_tests(lf_libs):
                 lines.append(f"└─")
             else:
                 # Show all protocols
-                lines.append("\n┌─────────────┬──────────┬─────────────────────────────────────┐")
-                lines.append("│ Protocol    │ Status   │ Evidence                            │")
-                lines.append("├─────────────┼──────────┼─────────────────────────────────────┤")
+                lines.append(
+                    "\n┌───────────────┬──────────┬──────────────────────────────────────────────────────────────────────────────────")  # ┐
+                lines.append("│ Protocol      │ Status   │ Evidence                            │")
+                lines.append(
+                    "├─────────────────┼──────────┼──────────────────────────────────────────────────────────────────────────────────")  # ┤
 
                 for proto, name in [('11k', '802.11k (RRM)'), ('11v', '802.11v (BTM)'), ('11r', '802.11r (FT)')]:
                     data = protocols[proto]
                     status = "✓ ENABLED" if data['enabled'] else "✗ NOT DETECTED"
 
-                    lines.append(f"│ {name:<11} │ {status:<8} │                                     │")
+                    lines.append(f"│ {name:<11}   │ {status:<8}   │                                     ")
 
                     if data['details']:
                         for i, detail in enumerate(data['details'][:3]):
                             if i == 0:
-                                lines.append(f"│             │          │ • {detail:<35} │")
+                                lines.append(f"│               │          │ • {detail:<35} ")
                             else:
-                                lines.append(f"│             │          │   {detail:<35} │")
+                                lines.append(f"│               │          │   {detail:<35} ")
 
                     if data['frames']:
-                        lines.append(f"│             │          │   ({len(data['frames'])} frames)   │")
+                        lines.append(f"│               │          │   ({len(data['frames'])} frames)   ")
 
-                    lines.append("├─────────────┼──────────┼─────────────────────────────────────┤")
+                    lines.append(
+                        "├─────────────────┼──────────┼──────────────────────────────────────────────────────────────────────────────")  # ┤
 
             return "\n".join(lines)
 
-        def build_frame_view(frames, protocols):
+        def build_frame_view(frames):
             """Build detailed frame view (limited to unique frames)"""
             lines = []
             lines.append("\n" + "=" * 120)
@@ -1168,11 +1457,11 @@ class lf_tests(lf_libs):
 
             for f in frames:
                 # Determine frame type
-                if f["cat"] == 10:
+                if f["cat"] == 10 and f["action"] in [6, 7, 8]:
                     frame_type = f"BTM (action={f['action']})"
-                elif f["cat"] == 5:
+                elif f["cat"] == 5 and f["action"] in [0, 1]:
                     frame_type = "RRM (11k)"
-                elif f.get("auth_alg") == "2":
+                elif str(f.get("auth_alg")) == "2":
                     frame_type = "FT Auth (11r)"
                 elif f["subtype"] in [0, 2]:
                     frame_type = "Assoc/Reassoc Req"
@@ -1185,7 +1474,7 @@ class lf_tests(lf_libs):
                 if check_protocol:
                     if check_protocol == "11k" and f["cat"] != 5:
                         continue
-                    if check_protocol == "11v" and f["cat"] != 10:
+                    if check_protocol == "11v" and not (f["cat"] == 10 and f["action"] in [6, 7, 8]):
                         continue
                     if check_protocol == "11r" and f.get("auth_alg") != "2" and "54" not in parse_tag_numbers(
                             f.get("tag_numbers", "")):
@@ -1216,6 +1505,10 @@ class lf_tests(lf_libs):
         # -------------------------------
         # MAIN EXECUTION
         # -------------------------------
+        bssid_list = [norm(b) for b in (bssid_list or []) if b]
+        if bssid:
+            bssid_list.append(norm(bssid))
+
         frames, tshark_filter = run_tshark()
 
         if not frames:
@@ -1234,8 +1527,20 @@ class lf_tests(lf_libs):
                 "pass_status": False,
             }
 
+        roam_metrics = {}
+        data_roam = None
         protocols = detect_protocols(frames)
-        events = extract_events(frames, protocols)
+        events = extract_events(frames)
+        eapol_check = None
+
+        if mode == "11kvr_roaming":
+            eapol_check = check_no_eapol_on_target_ap(frames, events)
+
+        if mode == "11kvr_over_11kv_roaming":
+            roam_metrics = calculate_all_roam_times(events)
+
+        if mode == "11kvr_roaming_soft_roam":
+            data_roam = calculate_data_roam_time(events)
 
         # Determine result based on mode and check_protocol
         if check_protocol:
@@ -1245,22 +1550,37 @@ class lf_tests(lf_libs):
             # Regular mode-based analysis
             if mode == "band_steering":
                 result, details = analyze_band_steering(events)
-            elif mode == "11r_roaming" or mode == "11r":
+
+            elif mode in ["11r_roaming", "11r"]:
                 result, details = analyze_11r_roaming(events, protocols)
-            elif mode == "11kv_roaming" or mode == "11kv":
+
+            elif mode in ["11kv_roaming", "11kv"]:
                 result, details = analyze_11kv_roaming(events, protocols)
-            elif mode == "11kvr_roaming" or mode == "11kvr":
-                result, details = analyze_11kvr_roaming(events, protocols)
-            elif mode == "11kr_roaming" or mode == "11kr":
+
+            elif mode in ["11kvr_roaming", "11kvr", "11kvr_over_11kv_roaming", "11kvr_roaming_soft_roam"]:
+                result, details = analyze_11kvr_roaming(events, protocols, frames)
+
+            elif mode in ["11kr_roaming", "11kr"]:
                 result, details = analyze_11kr_roaming(events, protocols)
+
+            elif mode == "11k_action":
+                result, details = analyze_11k_action_frame(events)
+
+            elif mode == "11k":
+                result, details = analyze_11k(frames)
+
+            elif mode == "11vr":
+                result, details = analyze_11vr_beacon(frames, events)
+
             elif mode == "multi_roam":
-                multi_results = analyze_multi_roam(events, protocols)
+                multi_results = analyze_multi_roam(events)
                 if multi_results:
                     result = multi_results[0]["result"]
                     details = multi_results[0]["details"]
                 else:
                     result = "FAIL_NO_ROAM"
                     details = ["No roaming detected"]
+
             else:
                 raise ValueError(f"Unsupported mode: {mode}")
 
@@ -1281,7 +1601,7 @@ class lf_tests(lf_libs):
                 report.append(f"  [{e['frame']}] {e['kind']} @ {e['ts']:.6f}s | {e.get('band', '?')}")
 
         if frame_view:
-            report.append(build_frame_view(frames, protocols))
+            report.append(build_frame_view(frames))
 
         report.append("\nFILTERS USED:")
         for f in build_filter_summary():
@@ -1291,6 +1611,37 @@ class lf_tests(lf_libs):
         report.append(pretty_filter(tshark_filter))
 
         report.append(build_static_logic_reference())
+        if mode == "11kvr_over_11kv_roaming":
+            report.append("\nROAM TIME ANALYSIS:")
+
+            if roam_metrics:
+                for idx, r in enumerate(roam_metrics, 1):
+                    report.append(
+                        f"  • Roam #{idx}: {r['roam_time_ms']} ms ({r['type']})"
+                    )
+            else:
+                report.append("  • No roam times detected")
+
+        if mode == "11kvr_roaming_soft_roam":
+            report.append("\nDATA ROAM TIME:")
+
+            if isinstance(data_roam, list) and data_roam:
+                for idx, r in enumerate(data_roam, 1):
+                    report.append(
+                        f"  • Roam #{idx}: {r['roam_time_ms']} ms "
+                        f"({r['from_bssid']} → {r['to_bssid']})"
+                    )
+            else:
+                report.append(" No data-based roam detected")
+
+        if mode == "11kvr_roaming":
+            report.append("\nEAPOL VALIDATION:")
+
+            if eapol_check:
+                if eapol_check["status"]:
+                    report.append(f"  • PASS: {eapol_check['reason']}")
+                else:
+                    report.append(f"  • FAIL: {eapol_check['reason']}")
 
         return {
             "client_mac": norm(client_mac) if client_mac else None,
@@ -1300,6 +1651,10 @@ class lf_tests(lf_libs):
             "result": result,
             "details": details,
             "events": events,
+            "roam_times": roam_metrics if roam_metrics else [],
+            # "data_roam_times": data_roam if mode == "11kvr_roaming" else [],
+            "data_roam_times": data_roam if mode == "11kvr_roaming_soft_roam" else [],
+            "eapol_validation": eapol_check if mode == "11kvr_roaming" else None,
             "protocols": {
                 "11k": protocols['11k']['enabled'],
                 "11v": protocols['11v']['enabled'],
@@ -1402,6 +1757,7 @@ class lf_tests(lf_libs):
             if radio not in station_radio_map:
                 station_radio_map[radio] = []
             station_radio_map[radio].extend(station_list)
+
         # NOTE: standard test_type is same for both standard and few data vlan test cases.
 
         if test_type == "standard":
@@ -1417,7 +1773,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -1426,7 +1782,8 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
@@ -1459,8 +1816,8 @@ class lf_tests(lf_libs):
                 # get_target_object.dut_library_object.control_radio_band(band="5g", action="down")
 
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 950, idx - 1) # Initial attenuation to 40 for steer_fiveg case
-                    band_steer.set_atten('1.1.3002', 950, idx - 3) # module 1 and 2 setting to MAX
+                    band_steer.set_atten('1.1.3009', 950, idx - 1)  # Initial attenuation to 40 for steer_fiveg case
+                    band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
                     band_steer.set_atten('1.1.3002', 400, idx - 1)
 
                 band_steer.create_clients(
@@ -1517,11 +1874,11 @@ class lf_tests(lf_libs):
             before_state = {}
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
 
@@ -1560,7 +1917,8 @@ class lf_tests(lf_libs):
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
-                attenuator='1.1.3002', modules=[3, 4], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+                attenuator='1.1.3002', modules=[3, 4],
+                steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
 
             # temporarily waiting for 2 mins
             time.sleep(120)
@@ -1695,10 +2053,10 @@ class lf_tests(lf_libs):
         elif test_type == "pre_assoc":
             """
                 Test Cases TC_BS_2 and TC_BS_3 Pre-Association Steering
-                
+
                 Purpose:
                 Verify that a client is steered to 5GHz/2.4GHz during authentication when 2.4GHz/5Ghz is overloaded.
-                
+
                 Test Flow:
                 1. Enable band steering with thresholds configured
                 2. Connect STA1 and STA2 to 5GHz/2.4GHz
@@ -1706,7 +2064,7 @@ class lf_tests(lf_libs):
                 4. Overload 5GHz/2.4GHz using traffic from STA1
                 5. Move STA2 closer to AP to ensure strong 5GHz RSSI
                 6. Attempt to reconnect STA2
-                
+
                 Expected Results:
                 - AP rejects authentication on 5GHz/2.4GHz
                 - STA2 associates successfully on 2.4GHz/5Ghz
@@ -1722,7 +2080,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -1731,7 +2089,7 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 2),
-                max_attenuation= 45,
+                max_attenuation=45,
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz",
@@ -1750,7 +2108,7 @@ class lf_tests(lf_libs):
 
             sta_list_2 = band_steer.get_sta_list_before_creation(
                 start_id=1, num_sta=1,
-                radio=dict_all_radios_5g["mtk_radios"][1])  #  "1.2.wiphy0"
+                radio=dict_all_radios_5g["mtk_radios"][1])  # "1.2.wiphy0"
 
             sta_list = sta_list_1 + sta_list_2
 
@@ -1782,11 +2140,11 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 400, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
 
-            time.sleep(5) # wait to some time for attenuation to be applied
+            time.sleep(5)  # wait to some time for attenuation to be applied
 
             # -------------------- Station Creation --------------------
             band_steer.create_clients(
-                radio=dict_all_radios_5g["mtk_radios"][1],  #  "1.2.wiphy0"
+                radio=dict_all_radios_5g["mtk_radios"][1],  # "1.2.wiphy0"
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -1797,7 +2155,7 @@ class lf_tests(lf_libs):
                 option=None
             )
             band_steer.create_clients(
-                radio=dict_all_radios_5g["mtk_radios"][0],  #  "1.1.wiphy0"
+                radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 ssid=ssid,
                 passwd=passkey,
                 security=security,
@@ -1830,11 +2188,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -1903,7 +2261,8 @@ class lf_tests(lf_libs):
 
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
-                    attenuator='1.1.3009', modules=[1, 2], steer='twog' if band_steer.steer_type =="steer_twog" else 'fiveg')
+                    attenuator='1.1.3009', modules=[1, 2],
+                    steer='twog' if band_steer.steer_type == "steer_twog" else 'fiveg')
 
                 # temporarily waiting for 2 mins (If not AP client initiates steering)
                 time.sleep(120)
@@ -1992,7 +2351,7 @@ class lf_tests(lf_libs):
                     after_channel = result.get("after_channel")
                     before_rssi = result.get("before_rssi")
                     after_rssi = result.get("after_rssi")
-                    
+
                     if before_bssid == after_bssid:
                         functional_failures.append({
                             "sta": sta,
@@ -2054,17 +2413,17 @@ class lf_tests(lf_libs):
         elif test_type == "post_assoc":
             """
                 Test Cases TC_BS_4 and TC_BS_5 Post-Association Steering
-                
+
                 Purpose:
                 Validate post-association steering when the 2.4GHz/5Ghz band becomes overloaded.
-                
+
                 Test Flow:
                 1. Connect STA1, STA2, STA3 to 2.4GHz/5Ghz
                 2. Inject traffic to overload 2.4GHz/5Ghz
                 3. Verify overload detection via syslog
                 4. Move STA2 and STA3 closer to AP
                 5. Stop traffic selectively
-                
+
                 Expected Results:
                 - STA2 and STA3 are steered from 2.4GHz/5Ghz to 5GHz/2.4GHz
                 - Syslog and sniffer confirm disassociation and reassociation
@@ -2080,7 +2439,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -2103,7 +2462,7 @@ class lf_tests(lf_libs):
             # -------------------- STA Creation --------------------
             sta_list_1 = band_steer.get_sta_list_before_creation(
                 num_sta=1,
-                radio=dict_all_radios_5g["mtk_radios"][0])  #  "1.1.wiphy0"
+                radio=dict_all_radios_5g["mtk_radios"][0])  # "1.1.wiphy0"
             print(f"[DEBUG] Station List: {sta_list_1}")
 
             sta_list_2 = band_steer.get_sta_list_before_creation(
@@ -2187,11 +2546,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -2254,7 +2613,8 @@ class lf_tests(lf_libs):
 
                 # -------------------- Trigger Steering --------------------
                 start_time, end_time = band_steer.start_band_steer_test_standard(
-                    attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+                    attenuator='1.1.3009', modules=[1, 2],
+                    steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
 
                 # temporarily waiting for 2 mins
                 time.sleep(120)
@@ -2416,14 +2776,14 @@ class lf_tests(lf_libs):
 
                 Purpose:
                 Ensure correct steering behavior when neither band is overloaded.
-                
+
                 Test Flow:
                 1. Connect STA1, STA2 on 2.4GHz and STA3, STA4 on 5GHz
                 2. Inject balanced traffic on both bands
                 3. Move STA2 closer for strong 5GHz RSSI
                 4. Move STA4 closer for strong 2.4GHz RSSI
                 5. Stop traffic and observe behavior
-                
+
                 Expected Results:
                 - STA2 steers to 5GHz
                 - STA4 steers to 2.4GHz
@@ -2439,7 +2799,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -2556,21 +2916,21 @@ class lf_tests(lf_libs):
                         f"Expected band: 5Ghz"
                     )
 
-            before_bssid = band_steer.get_bssids(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
-            before_chan = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
-            before_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
+            before_bssid = band_steer.get_bssids(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
+            before_chan = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
+            before_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
 
-            for sta in [sta_list_1[-1]]+[sta_list_2[-1]]:
+            for sta in [sta_list_1[-1]] + [sta_list_2[-1]]:
                 before_state[sta] = {
                     "bssid": before_bssid.get(sta),
                     "channel": before_chan.get(sta),
@@ -2635,9 +2995,9 @@ class lf_tests(lf_libs):
                 print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
                 # -------------------- Validate Steering --------------------
-                after_bssid = band_steer.get_bssids(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
-                after_chan = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
-                after_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]]+[sta_list_2[-1]])
+                after_bssid = band_steer.get_bssids(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
+                after_chan = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
+                after_rssi = band_steer.get_rssi(as_dict=True, station_list=[sta_list_1[-1]] + [sta_list_2[-1]])
 
                 # -------------------- Attenuator State --------------------
                 attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
@@ -2669,7 +3029,7 @@ class lf_tests(lf_libs):
                         "client_mac": mac_dict.get(sta)
                     }
 
-                for sta in [sta_list_1[-1]]+[sta_list_2[-1]] :
+                for sta in [sta_list_1[-1]] + [sta_list_2[-1]]:
                     after_state[sta] = {
                         "bssid": after_bssid.get(sta),
                         "channel": after_chan.get(sta),
@@ -2691,7 +3051,7 @@ class lf_tests(lf_libs):
                 functional_failures = []
                 pcap_failures = []
 
-                for sta in [sta_list_1[-1]]+[sta_list_2[-1]] :
+                for sta in [sta_list_1[-1]] + [sta_list_2[-1]]:
                     result = test_results.get(sta)
                     before_bssid = result.get("before_bssid")
                     after_bssid = result.get("after_bssid")
@@ -2759,16 +3119,16 @@ class lf_tests(lf_libs):
         elif test_type == "stickiness":
             """
                 Test Case: TC_BS_7 Band Steering Stickiness (Ping-Pong Avoidance)
-            
+
                 Purpose:
                 Ensure clients do not oscillate between bands during the steering prohibit timer.
-                
+
                 Test Flow:
                 1. Connect STA1, STA2 to 2.4GHz and STA3 to 5GHz
                 2. Overload 2.4GHz and steer STA2 to 5GHz
                 3. Stop traffic and normalize load
                 4. Repeat steering cycle multiple times
-                
+
                 Expected Results:
                 - STA2 remains on 5GHz until prohibit timer expires
                 - No unnecessary band bouncing occurs
@@ -2799,7 +3159,6 @@ class lf_tests(lf_libs):
                 initial_band_pref="5GHz"
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
-
 
             overall_status = "PASS"
             iteration_results = {}
@@ -2874,11 +3233,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -2990,7 +3349,7 @@ class lf_tests(lf_libs):
                 if bounced:
                     record_failure(iteration, f"{sta2} bounced back to 2.4GHz during prohibit timer")
 
-                band_steer.create_specific_cx(station_list=[sta_list_1[-1]]+sta_list_2)
+                band_steer.create_specific_cx(station_list=[sta_list_1[-1]] + sta_list_2)
                 band_steer.start_traffic_cx()
 
                 # ---------- RESULTS ----------
@@ -3073,16 +3432,16 @@ class lf_tests(lf_libs):
         elif test_type == "steer_success_rate":
             """
                 Test Cases TC_BS_8 Band Steering Success Rate
-    
+
                 Purpose:
                 Validate steering reliability by measuring success rate across multiple iterations.
-                
+
                 Test Flow:
                 1. Connect STA1, STA2 to 2.4GHz and STA3 to 5GHz
                 2. Overload 2.4GHz and steer STA2 to 5GHz
                 3. Overload 5GHz and steer STA2 back to 2.4GHz
                 4. Repeat the cycle six times
-                
+
                 Expected Results:
                 - Steering occurs correctly in both directions
                 - Minimum success rate of 5 out of 6 iterations
@@ -3113,7 +3472,6 @@ class lf_tests(lf_libs):
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
-
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -3134,7 +3492,7 @@ class lf_tests(lf_libs):
 
             # Create STA1 (2.4GHz) - using first radio
             sta_list_1 = band_steer.get_sta_list_before_creation(
-                start_id=0, num_sta=2, radio=dict_all_radios_5g["mtk_radios"][0])   # "1.1.wiphy0"
+                start_id=0, num_sta=2, radio=dict_all_radios_5g["mtk_radios"][0])  # "1.1.wiphy0"
 
             # station pre-cleanup before creation
             band_steer.pre_cleanup(sta_list_1)
@@ -3152,7 +3510,7 @@ class lf_tests(lf_libs):
             )
 
             sta_list_2 = band_steer.get_sta_list_before_creation(
-                start_id=2, num_sta=1, radio=dict_all_radios_5g["mtk_radios"][1])   # "1.2.wiphy0"
+                start_id=2, num_sta=1, radio=dict_all_radios_5g["mtk_radios"][1])  # "1.2.wiphy0"
 
             # station pre-cleanup before creation
             band_steer.pre_cleanup(sta_list_2)
@@ -3198,11 +3556,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -3315,7 +3673,7 @@ class lf_tests(lf_libs):
                     band_steer.clean_traffic_cx()
                     print(f"[DEBUG] Traffic-1 data : {band_steer.traffic_cx_profile.traffic_data}")
 
-                    time.sleep(20) # wait for station to connect
+                    time.sleep(20)  # wait for station to connect
 
                     sta2_before_steer = band_steer.get_channel(as_dict=True, station_list=[sta_list_1[-1]])
                     print(f"STA2 current channel: {sta2_before_steer}")
@@ -3501,13 +3859,13 @@ class lf_tests(lf_libs):
 
                 Purpose:
                 Verify throughput improvement after band steering under congestion.
-                
+
                 Test Flow:
                 1. Connect multiple STAs to 5GHz
                 2. Overload 5GHz with traffic
                 3. Steer selected clients to 2.4GHz
                 4. Measure throughput before and after steering
-                
+
                 Expected Results:
                 - Clients are redistributed across bands
                 - Throughput improves after steering
@@ -3523,7 +3881,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -3618,11 +3976,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             # -------------------- Attenuator State --------------------
@@ -3893,7 +4251,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][1],   # "1.1.wiphy1"
+                station_radio=dict_all_radios_5g["mtk_radios"][1],  # "1.1.wiphy1"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -3902,13 +4260,13 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
-
 
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
@@ -3981,11 +4339,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -4213,7 +4571,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -4222,13 +4580,13 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
-
 
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
@@ -4330,11 +4688,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -4396,7 +4754,8 @@ class lf_tests(lf_libs):
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
-                attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+                attenuator='1.1.3009', modules=[1, 2],
+                steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
 
             # temporarily waiting for 2 mins
             time.sleep(120)
@@ -4563,7 +4922,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -4674,11 +5033,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -4767,7 +5126,7 @@ class lf_tests(lf_libs):
                         "after_rssi": after_rssi.get(sta),
                         "client_mac": mac_dict.get(sta)
                     }
-                for sta in sta_list_2 :
+                for sta in sta_list_2:
                     after_state[sta] = {
                         "bssid": after_bssid.get(sta),
                         "channel": after_chan.get(sta),
@@ -4913,7 +5272,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -4922,7 +5281,8 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
@@ -4934,7 +5294,7 @@ class lf_tests(lf_libs):
             qvlan_id = 100
             dut = get_target_object
             vlan_id = get_testbed_details["device_under_tests"][idx]["management_vlan"]
-            self.add_vlan(vlan_ids=[vlan_id,  qvlan_id], build=True)
+            self.add_vlan(vlan_ids=[vlan_id, qvlan_id], build=True)
 
             time.sleep(120)
             # -------------------- Management VLAN AP config --------------------
@@ -4969,7 +5329,6 @@ class lf_tests(lf_libs):
 
             dut.dut_library_object.attach_network_snapshot(idx, "After DHCP VLAN")
             dut.dut_library_object.validate_dhcp_with_management_vlan(idx, vlan_id)
-
 
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
@@ -5057,11 +5416,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list_2)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -5296,7 +5655,7 @@ class lf_tests(lf_libs):
                 num_sta=num_sta,
                 test_type=test_type,
                 steer_type=steer_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -5305,18 +5664,18 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
-
             # -------------------- Management VLAN Creation --------------------
             idx = 0
             dut = get_target_object
-            vlan_id = get_testbed_details["device_under_tests"][idx]["management_vlan"] #200
+            vlan_id = get_testbed_details["device_under_tests"][idx]["management_vlan"]  # 200
             print('CREATING vlan 200')
             self.add_vlan(vlan_ids=[vlan_id], build=True)
             print('Created vlan 200')
@@ -5424,11 +5783,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -5468,7 +5827,8 @@ class lf_tests(lf_libs):
 
             # -------------------- Trigger Steering --------------------
             start_time, end_time = band_steer.start_band_steer_test_standard(
-                attenuator='1.1.3009', modules=[1, 2], steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
+                attenuator='1.1.3009', modules=[1, 2],
+                steer='fiveg' if band_steer.steer_type == 'steer_fiveg' else 'twog')
 
             # temporarily waiting for 2 mins
             time.sleep(120)
@@ -5598,47 +5958,6 @@ class lf_tests(lf_libs):
                 "per_client": test_results
             }
 
-    def start_amqp_log_capture(self, get_target_object, idx=0):
-        """Clear AMQP logs at test start"""
-        logging.info("Clearing syslog before test start")
-
-        # for i in range(len(get_testbed_details['device_under_tests'])):
-        try:
-            get_target_object.dut_library_object.run_generic_command(
-                cmd="logread -c",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-        except Exception as e:
-            logging.error(f"Failed to clear logs: {e}")
-
-    def stop_amqp_log_capture(self, get_target_object, idx=0):
-        """Fetch AMQP logs at end and attach to Allure"""
-
-        logging.info("Fetching AMQP logs from /tmp/syslog")
-
-        try:
-            logs = get_target_object.dut_library_object.run_generic_command(
-                cmd="grep AMQP /tmp/syslog",
-                idx=idx,
-                print_log=False,
-                attach_allure=False
-            )
-
-            if logs and logs.strip():
-                allure.attach(
-                    logs,
-                    name="AMQP Logs",
-                    attachment_type=allure.attachment_type.TEXT
-                )
-                logging.info("AMQP logs attached to Allure")
-            else:
-                logging.warning("No AMQP logs found")
-
-        except Exception as e:
-            logging.error(f"Failed to fetch AMQP logs: {e}")
-
     @staticmethod
     def build_ap_transition_summary(sta, before_state, after_state, current_AP1=True):
         lines = []
@@ -5717,7 +6036,7 @@ class lf_tests(lf_libs):
                     attach_allure=False
                 )
 
-                # 4. Bring WiFi back
+                # 4. Bring Wifi back
                 dut.run_generic_command(
                     cmd="wifi",
                     idx=idx,
@@ -5798,7 +6117,8 @@ class lf_tests(lf_libs):
             steer_type=None,
             initial_band=None,
             get_testbed_details=None,
-            get_target_object=None
+            get_target_object=None,
+            setup_config=None
     ):
         dict_all_radios_2g = {"be200_radios": self.be200_radios,
                               "ax210_radios": self.ax210_radios, "ax200_radios": self.ax200_radios,
@@ -5855,7 +6175,7 @@ class lf_tests(lf_libs):
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -5863,8 +6183,7 @@ class lf_tests(lf_libs):
 
             time.sleep(60)
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -5880,18 +6199,28 @@ class lf_tests(lf_libs):
             except Exception as e:
                 print("Allure attach failed:", e)
 
-            # Collect supplicant logs for each radio
-            # for radio, stations in station_radio_map.items():
-            #     if stations:
-            #         print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
-            #         self.get_supplicant_logs(radio=str(radio), sta_list=stations)
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
 
-            # With BSSID only
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11kv",
+                mode="11kr",
+                bssid_list=bssid_list,
                 show_events=True
+            )
+            allure.attach(
+                json.dumps(analysis, indent=4),
+                name="Roaming Sniffer Analysis",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            allure.attach(
+                analysis["report_text"],
+                name=f"Roaming Sumamry",
+                attachment_type=allure.attachment_type.TEXT
             )
 
             # Check results
@@ -5945,7 +6274,7 @@ class lf_tests(lf_libs):
             #                                                                 enable_11k=True,
             #                                                                 enable_11v=False)
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -6034,8 +6363,8 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
+
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -6073,7 +6402,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -6122,17 +6452,30 @@ class lf_tests(lf_libs):
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
             # With BSSID only
+
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             pcap_failures = []
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11kv",
+                mode="11k_action",
+                bssid_list=bssid_list,
                 show_events=True
             )
 
             allure.attach(
+                json.dumps(analysis, indent=4),
+                name="Roaming Sniffer Analysis",
+                attachment_type=allure.attachment_type.JSON
+            )
+
+            allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                name=f"Roaming Sumamry",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6166,7 +6509,7 @@ class lf_tests(lf_libs):
                 password=passkey,
                 num_sta=num_sta,
                 test_type=test_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -6175,13 +6518,14 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -6189,8 +6533,7 @@ class lf_tests(lf_libs):
 
             time.sleep(60)
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -6207,17 +6550,27 @@ class lf_tests(lf_libs):
                 print("Allure attach failed:", e)
 
             # With BSSID only
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             pcap_failures = []
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11kv",
+                mode="11vr",
+                bssid_list=bssid_list,
                 show_events=True
             )
-
+            allure.attach(
+                json.dumps(analysis, indent=4),
+                name="Roaming Sniffer Analysis",
+                attachment_type=allure.attachment_type.JSON
+            )
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                name=f"Roaming Sumamry",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6252,7 +6605,7 @@ class lf_tests(lf_libs):
                 password=passkey,
                 num_sta=num_sta,
                 test_type=test_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -6261,7 +6614,8 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
@@ -6275,13 +6629,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=False,
-            #                                                                 enable_11v=True)
-
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -6337,7 +6685,7 @@ class lf_tests(lf_libs):
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -6358,7 +6706,6 @@ class lf_tests(lf_libs):
             # -------------------- Start Continues Ping --------------------
             band_steer.create_ping_cx(station_list=sta_list)
             band_steer.start_ping_cx()
-
             time.sleep(30)
             band_steer.stop_ping_cx()
             ping_status = band_steer.check_connectivity(band_steer.ping_cx_profile)
@@ -6381,21 +6728,6 @@ class lf_tests(lf_libs):
             band_steer.create_specific_cx(station_list=sta_list, tos='VO')
             band_steer.start_traffic_cx()
 
-            # -------------------- Trigger Steering --------------------
-            # start_time, end_time = band_steer.roam_test_standard(
-            #     attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
-
-            # print(f"[DEBUG] Start Time : {start_time}")
-            # print(f"[DEBUG] End Time : {end_time}")
-
-            # -------------------- Validate Steering --------------------
-            # after_bssid = band_steer.get_bssids(as_dict=True, station_list=sta_list)
-            # after_chan = band_steer.get_channel(as_dict=True, station_list=sta_list)
-            # after_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
-
-            # -------------------- Attenuator State --------------------
-            # attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
-
             # -------------------- Stop Traffic --------------------
             band_steer.stop_traffic_cx()
             allure.attach(
@@ -6407,8 +6739,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
             print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -6430,18 +6761,31 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
+
             # With BSSID only
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             pcap_failures = []
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
-                mode="11kv",
+                mode="11vr",
+                bssid_list=bssid_list,
                 show_events=True
             )
-
+            allure.attach(
+                json.dumps(analysis, indent=4),
+                name="Roaming Sniffer Analysis",
+                attachment_type=allure.attachment_type.JSON
+            )
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Analysis - BSSID: {test_config.get('bssid_5g')}",
+                name=f"Roaming Sumamry",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6475,7 +6819,7 @@ class lf_tests(lf_libs):
                 password=passkey,
                 num_sta=num_sta,
                 test_type=test_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -6484,24 +6828,16 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
-
-            # TODO: Disable 802.11r from given SSID
-            # -------------------- Disable 802.11r --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=False,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
-                radio=dict_all_radios_5g["mtk_radios"][0])
+                num_sta=1, radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
             # Clean up if there are already existing station with same name
@@ -6520,7 +6856,7 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -6557,11 +6893,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -6617,7 +6953,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -6642,33 +6979,38 @@ class lf_tests(lf_libs):
             #                                                                 enable_11v=True)
 
             # Enable 11r on all VAPs
-            dut = get_target_object.dut_library_object
+            dut_count = len(get_testbed_details['device_under_tests'])
 
-            vap_list = dut.get_vap_list(enabled_only=True)
+            for idx in range(dut_count):
+                dut = get_target_object.dut_library_object
 
-            if not vap_list:
-                raise Exception("No VAPs found")
+                vap_list = dut.get_vap_list(enabled_only=True)
 
-            for vap in vap_list:
-                print(f"Configuring 11r on {vap}")
+                if not vap_list:
+                    raise Exception("No VAPs found")
 
-                # --------------------
-                # SET CONFIG
-                # --------------------
-                dut.run_generic_command(cmd=f"uci set wireless.{vap}.ieee80211r='1'")
-                dut.run_generic_command(cmd=f"uci set wireless.{vap}.mobility_domain='1234'")
+                for vap in vap_list:
+                    print(f"Configuring 11r on {vap}")
 
-            # Commit once (like best practice)
-            dut.run_generic_command(cmd="uci commit wireless")
-            dut.run_generic_command(cmd="wifi reload")
+                    # --------------------
+                    # SET CONFIG
+                    # --------------------
+                    dut.run_generic_command(cmd=f"uci set wireless.{vap}.ieee80211r='1'", idx=idx)
+                    dut.run_generic_command(cmd=f"uci set wireless.{vap}.mobility_domain='1234'", idx=idx)
+
+                # Commit once (like best practice)
+                dut.run_generic_command(cmd="uci commit wireless", idx=idx)
+                dut.run_generic_command(cmd="wifi reload", idx=idx)
 
             time.sleep(15)
 
             band_steer.station_profile.set_command_flag("add_sta", "8021x_radius", 1)
             band_steer.station_profile.set_command_flag("add_sta", "ft-roam-over-ds", 1)
             band_steer.station_profile.set_wifi_extra(key_mgmt="FT-PSK",
-                                                psk=passkey)
+                                                      psk=passkey)
             band_steer.station_profile.create(radio=dict_all_radios_5g["mtk_radios"][0], sta_names_=sta_list)
+            band_steer.wait_until_ports_appear(sta_list=sta_list)
+            band_steer.station_profile.admin_up()
 
             # -------------------- Initial Attenuation --------------------
             # setting attenuation to connect Back to AP1
@@ -6678,7 +7020,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Attenuator State --------------------
-            attach_attenuator_state(band_steer, title="Attenuator State - Before Steering")
+            attach_attenuator_state(band_steer, title="Attenuator State - Before Roaming")
 
             # To reassociate back to AP1
             time.sleep(20)
@@ -6689,11 +7031,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -6727,8 +7069,7 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Steering")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -6767,7 +7108,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state, current_AP1=False)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state, current_AP1=False)
 
             allure.attach(
                 ap_summary,
@@ -6820,6 +7162,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -6829,14 +7176,20 @@ class lf_tests(lf_libs):
                     analysis = self.analyze_sniffer_pcap(
                         pcap_path=local_pcap,
                         client_mac=client_mac,
-                        mode="11kvr_roaming",
+                        mode="11kvr_over_11kv_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
+                    )
+                    allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
                     )
 
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -6896,8 +7249,6 @@ class lf_tests(lf_libs):
                 print("\nPCAP Analysis Failures:")
                 for failure in pcap_failures:
                     print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
-
-            print("=" * 60)
 
             return all_pass, result_dict
 
@@ -6962,14 +7313,8 @@ class lf_tests(lf_libs):
 
             print(f"Channel {channel} successfully set on {radio}")
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
-
-
-            # -------------------- Enable 802.11k/v/r --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7033,11 +7378,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -7072,8 +7417,7 @@ class lf_tests(lf_libs):
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -7114,7 +7458,8 @@ class lf_tests(lf_libs):
 
             ap_summary = None
             if roam_towards == "ap2":
-                ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+                ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                              after_state=after_state)
             else:
                 ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
                                                               after_state=after_state, current_AP1=False)
@@ -7172,6 +7517,14 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            # -------------------- Attenuator State --------------------
+            attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
+
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -7181,17 +7534,21 @@ class lf_tests(lf_libs):
                     analysis = self.analyze_sniffer_pcap(
                         pcap_path=local_pcap,
                         client_mac=client_mac,
-                        mode="11kvr_roaming",
+                        mode="11kvr_roaming_soft_roam",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
-
+                    allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
-
                     if not analysis["pass_status"]:
                         pcap_failures.append({
                             "sta": sta,
@@ -7249,8 +7606,6 @@ class lf_tests(lf_libs):
                 for failure in pcap_failures:
                     print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
 
-            print("=" * 60)
-
             return all_pass, result_dict
 
         # 08
@@ -7266,7 +7621,7 @@ class lf_tests(lf_libs):
                 password=passkey,
                 num_sta=num_sta,
                 test_type=test_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -7275,20 +7630,16 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
             # get_target_object.dut_library_object.get_radio_mac_addresses()
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
-
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7350,11 +7701,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -7403,8 +7754,7 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -7443,7 +7793,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -7498,6 +7849,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -7508,13 +7864,18 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
-
+                    allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -7575,8 +7936,6 @@ class lf_tests(lf_libs):
                 for failure in pcap_failures:
                     print(f"  • {failure.get('sta', failure.get('bssid', 'Unknown'))}: {failure.get('reason')}")
 
-            print("=" * 60)
-
             return all_pass, result_dict
 
         # 09
@@ -7592,7 +7951,7 @@ class lf_tests(lf_libs):
                 password=passkey,
                 num_sta=num_sta,
                 test_type=test_type,
-                station_radio=dict_all_radios_5g["mtk_radios"][0],   # "1.1.wiphy0"
+                station_radio=dict_all_radios_5g["mtk_radios"][0],  # "1.1.wiphy0"
                 sniff_radio_1=test_config.get("sniff_radio_1", "1.3.wiphy0"),
                 sniff_radio_2=test_config.get("sniff_radio_2", "1.3.wiphy1"),
                 sniff_channel_1=test_config.get("sniff_channel_1", "6"),
@@ -7601,20 +7960,14 @@ class lf_tests(lf_libs):
                 attenuators=test_config.get("attenuators", '1.1.3002'),
                 set_max_attenuators=test_config.get("set_max_attenuators", None),
                 step=test_config.get("step", 5),
-                max_attenuation=test_config.get("max_attenuation", 40), # Try connecting Far from AP for standard testcase
+                max_attenuation=test_config.get("max_attenuation", 40),
+                # Try connecting Far from AP for standard testcase
                 wait_time=test_config.get("wait_time", 10),
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
-
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
@@ -7629,7 +7982,6 @@ class lf_tests(lf_libs):
             # Track station-radio mapping
             track_station_creation(dict_all_radios_5g["mtk_radios"][0], sta_list)
             # -------------------- Initial Attenuation --------------------
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -7676,11 +8028,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -7729,8 +8081,7 @@ class lf_tests(lf_libs):
             # -------------------- Attenuator State --------------------
             attach_attenuator_state(band_steer, title="Attenuator State - After Roam")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -7769,7 +8120,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -7824,6 +8176,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -7834,13 +8191,18 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
-
+                    allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -7933,15 +8295,7 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
-
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                enable_11v=True)
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -7949,8 +8303,7 @@ class lf_tests(lf_libs):
 
             time.sleep(60)
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -7966,12 +8319,28 @@ class lf_tests(lf_libs):
             except Exception as e:
                 print("Allure attach failed:", e)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             # With BSSID only
             analysis = self.analyze_sniffer_pcap(
                 pcap_path=local_pcap,
                 bssid=test_config.get("bssid_5g"),  # Use AP's BSSID
                 mode="11kvr",
+                bssid_list=bssid_list,
                 show_events=True
+            )
+            allure.attach(
+                json.dumps(analysis, indent=4),
+                name=f"Roaming Sniffer Analysis",
+                attachment_type=allure.attachment_type.JSON
+            )
+            allure.attach(
+                analysis["report_text"],
+                name=f"Roaming Sumamry",
+                attachment_type=allure.attachment_type.TEXT
             )
 
             # Check results
@@ -8012,19 +8381,12 @@ class lf_tests(lf_libs):
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                enable_11v=True)
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -8076,11 +8438,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -8128,7 +8490,6 @@ class lf_tests(lf_libs):
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
-
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
@@ -8144,8 +8505,7 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -8184,7 +8544,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -8238,6 +8599,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -8248,13 +8614,19 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
 
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Analysis {sta}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -8320,7 +8692,7 @@ class lf_tests(lf_libs):
             return all_pass, result_dict
 
         # 17 18 19 20
-        elif test_type == "roaming_channel_check" :
+        elif test_type == "roaming_channel_check":
             """
                TC_ROAM-BANDSTEER_07 : L2 Roaming Enabled BS from 5GHz to 5GHz Same Channel
                TC_ROAM-BANDSTEER_08 : L2 Roaming Enabled BS from 5GHz to 5GHz different Channel
@@ -8367,36 +8739,38 @@ class lf_tests(lf_libs):
                     raise ValueError("expected_band must be '2g' or '5g'")
 
                 # Set channel
-                dut = get_target_object.dut_library_object
+                dut_count = len(get_testbed_details['device_under_tests'])
+                dut = None
+                for idx in range(dut_count):
+                    dut = get_target_object.dut_library_object
 
-                dut.run_generic_command(cmd=f"uci set wireless.{radio}.channel={channel}")
-                dut.run_generic_command(cmd="uci commit wireless")
-                dut.run_generic_command(cmd="wifi reload")
+                    dut.run_generic_command(cmd=f"uci set wireless.{radio}.channel={channel}", idx=idx)
+                    dut.run_generic_command(cmd="uci commit wireless", idx=idx)
+                    dut.run_generic_command(cmd="wifi reload", idx=idx)
 
-                time.sleep(15)
+                    time.sleep(15)
 
-                # Verify via UCI
-                output = dut.run_generic_command(cmd=f"uci get wireless.{radio}.channel")
-                current_channel = str(output).strip().splitlines()[-1]
+                    # Verify via UCI
+                    output = dut.run_generic_command(cmd=f"uci get wireless.{radio}.channel", idx=idx)
+                    current_channel = str(output).strip().splitlines()[-1]
 
-                print(f"[UCI] Channel set: {current_channel}")
+                    print(f"[UCI] Channel set: {current_channel}")
 
-                if str(current_channel) != str(channel):
-                    raise Exception(f"UCI mismatch! Expected {channel}, got {current_channel}")
+                    if str(current_channel) != str(channel):
+                        raise Exception(f"UCI mismatch! Expected {channel}, got {current_channel}")
 
-                # Verify actual radio
-                iw_output = dut.run_generic_command(cmd="iw dev")
-                print(f"[IW OUTPUT]\n{iw_output}")
+                    # Verify actual radio
+                    iw_output = dut.run_generic_command(cmd="iw dev", idx=idx)
+                    print(f"[IW OUTPUT]\n{iw_output}")
 
-                if str(channel) not in str(iw_output):
-                    raise Exception(f"Radio not operating on channel {channel}")
+                    if str(channel) not in str(iw_output):
+                        raise Exception(f"Radio not operating on channel {channel}")
 
-                print(f"Channel {channel} successfully set on {radio}")
+                    print(f"Channel {channel} successfully set on {radio}")
 
             # -------------------- STA name series --------------------
             sta_list = band_steer.get_sta_list_before_creation(
-                num_sta=num_sta,
-                radio=dict_all_radios_5g["mtk_radios"][0])
+                num_sta=1, radio=dict_all_radios_5g["mtk_radios"][0])
             print(f"[DEBUG] Station List: {sta_list}")
 
             # Clean up if there are already existing station with same name
@@ -8418,7 +8792,7 @@ class lf_tests(lf_libs):
                     band_steer.set_atten('1.1.3002', 900, idx - 3)
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -8432,7 +8806,6 @@ class lf_tests(lf_libs):
                 band_steer.start_sniffer()
 
             if initial_band == "2Ghz":
-
                 # -------------------- 2Ghz STA Creation --------------------
                 band_steer.create_clients(
                     radio=band_steer.station_radio,
@@ -8478,11 +8851,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -8507,16 +8880,15 @@ class lf_tests(lf_libs):
                     # Expected: STA creation on band 2.4 GHz
                     if ch is None or ch not in range(1, 15):
                         pytest.fail(
-                            f"[FAILED] {sta} is not on 2.4 GHz before steering. \n"
+                            f"[FAILED] {sta} is not on 2.4 GHz before Roaming. \n"
                             f"Observed band: 5Ghz  (Channel {ch}) \n"
                             f"Expected band: 2.4Ghz"
                         )
-
                 else:
                     # Expected: STA creation on band 5 GHz
                     if ch is None or ch < 36:
                         pytest.fail(
-                            f"[FAILED] {sta} is not on 5 GHz before steering. \n"
+                            f"[FAILED] {sta} is not on 5 GHz before Roaming. \n"
                             f"Observed band: 2.4Ghz  (Channel {ch}) \n"
                             f"Expected band: 5Ghz"
                         )
@@ -8537,8 +8909,7 @@ class lf_tests(lf_libs):
             after_chan = band_steer.get_channel(as_dict=True)
             after_rssi = band_steer.get_rssi(as_dict=True)
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------------
@@ -8581,7 +8952,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -8652,10 +9024,9 @@ class lf_tests(lf_libs):
                             "sta": sta,
                             "client_mac": result.get("client_mac"),
                             "reason": f"{sta} expected to roam on 5GHz but got channel {after_channel}",
-                                                                                                          "before": before_bssid,
-                        "after": after_bssid
+                            "before": before_bssid,
+                            "after": after_bssid
                         })
-
 
                 # --------------------------------------------------
                 # Validate Channel Condition
@@ -8665,8 +9036,8 @@ class lf_tests(lf_libs):
                         functional_failures.append({
                             "sta": sta,
                             "client_mac": result.get("client_mac"),
-                            "reason":  f"{sta} expected same channel roaming "
-                            f"(before={before_channel}, after={after_channel})",
+                            "reason": f"{sta} expected same channel roaming "
+                                      f"(before={before_channel}, after={after_channel})",
                             "before": before_bssid,
                             "after": after_bssid
                         })
@@ -8685,6 +9056,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -8695,13 +9071,19 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
 
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Analysis {sta}",
+                        attachment_type=allure.attachment_type.TEXT
+                    )
+                    allure.attach(
+                        analysis["report_text"],
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -8801,12 +9183,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                enable_11v=True)
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -8858,11 +9235,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -8910,7 +9287,6 @@ class lf_tests(lf_libs):
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
-
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
@@ -8926,8 +9302,7 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -8966,7 +9341,8 @@ class lf_tests(lf_libs):
                     "rssi": after_rssi.get(sta)
                 }
 
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -9020,6 +9396,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -9030,13 +9411,18 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
-
+                    allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -9136,12 +9522,7 @@ class lf_tests(lf_libs):
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                enable_11v=True)
-
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -9193,11 +9574,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -9245,7 +9626,6 @@ class lf_tests(lf_libs):
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
-
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
@@ -9261,8 +9641,7 @@ class lf_tests(lf_libs):
             band_steer.stop_traffic_cx()
             band_steer.clean_traffic_cx()
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -9300,7 +9679,8 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -9353,6 +9733,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -9363,13 +9748,19 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
 
                     allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
+                    allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -9474,7 +9865,7 @@ class lf_tests(lf_libs):
             #                                                                 enable_11k=True,
             #                                                                 enable_11v=True)
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -9526,11 +9917,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -9578,7 +9969,6 @@ class lf_tests(lf_libs):
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
-
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
@@ -9602,8 +9992,8 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
             print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
+
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -9641,7 +10031,8 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -9695,6 +10086,10 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
 
             for sta in sta_list:
                 result = test_results.get(sta)
@@ -9706,13 +10101,19 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
 
                     allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
+                    allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -9817,7 +10218,7 @@ class lf_tests(lf_libs):
             #                                                                 enable_11k=True,
             #                                                                 enable_11v=True)
 
-            # -------------------- Start AMQP Log Capture --------------------
+            # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Start Sniffer --------------------
@@ -9869,11 +10270,11 @@ class lf_tests(lf_libs):
             before_rssi = band_steer.get_rssi(as_dict=True, station_list=sta_list)
 
             # -------------------- Station MAC Map --------------------
-            mac_dict = band_steer.get_mac(station_list = sta_list)
+            mac_dict = band_steer.get_mac(station_list=sta_list)
 
             allure.attach(
                 body=json.dumps(mac_dict, indent=4),
-                name="Station_MAC_Map",
+                name="Virtual client MAC mapping ",
                 attachment_type=allure.attachment_type.JSON
             )
             before_state = {}
@@ -9921,7 +10322,6 @@ class lf_tests(lf_libs):
             start_time, end_time = band_steer.roam_test_standard(
                 attenuator='1.1.3002', inc_modules=[1, 2], dec_modules=[3, 4])
 
-
             print(f"[DEBUG] Start Time : {start_time}")
             print(f"[DEBUG] End Time : {end_time}")
 
@@ -9945,8 +10345,7 @@ class lf_tests(lf_libs):
             band_steer.clean_traffic_cx()
             print(f"[DEBUG] Traffic data : {band_steer.traffic_cx_profile.traffic_data}")
 
-            # -------------------- Stop and validate AMQP logs --------------------
-            self.stop_amqp_log_capture(get_target_object)
+            # -------------------- Stop Hostapd Log Capture --------------------
             self.stop_hostapd_logging(get_target_object, get_testbed_details)
 
             # -------------------- Stop Sniffer --------------------
@@ -9984,7 +10383,8 @@ class lf_tests(lf_libs):
                     "channel": after_chan.get(sta),
                     "rssi": after_rssi.get(sta)
                 }
-            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state, after_state=after_state)
+            ap_summary = self.build_ap_transition_summary(sta=sta_list[0], before_state=before_state,
+                                                          after_state=after_state)
 
             allure.attach(
                 ap_summary,
@@ -10037,6 +10437,11 @@ class lf_tests(lf_libs):
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
+            bssid_list = []
+            for device_id, device_data in setup_config.items():
+                for idx, ssid in device_data["ssid_data"].items():
+                    bssid_list.append(ssid['bssid'])
+
             for sta in sta_list:
                 result = test_results.get(sta)
                 client_mac = result.get("client_mac")
@@ -10047,13 +10452,19 @@ class lf_tests(lf_libs):
                         pcap_path=local_pcap,
                         client_mac=client_mac,
                         mode="11kvr_roaming",
+                        bssid_list=bssid_list,
                         show_events=True,
                         frame_view=True
                     )
 
                     allure.attach(
+                        json.dumps(analysis, indent=4),
+                        name=f"Roaming Sniffer Analysis {sta}",
+                        attachment_type=allure.attachment_type.JSON
+                    )
+                    allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Analysis {sta} - {client_mac}",
+                        name=f"Roaming Sumamry {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
