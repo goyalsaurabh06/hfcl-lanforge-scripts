@@ -1333,7 +1333,7 @@ class lf_libs:
             path = "../reports/" + str(report_name) + "/kpi.csv"
         if os.path.exists(path):
             allure.attach.file(source=path,
-                               name=file_name, attachment_type="CSV")
+                               name=f"{file_name}.csv", attachment_type="application/octet-stream")
         return os.path.exists(path)
 
     def get_supplicant_logs(self, radio="1.1.wiphy0", sta_list=[], attach_allure=True):
