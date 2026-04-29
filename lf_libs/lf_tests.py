@@ -5498,10 +5498,10 @@ ROAM DETECTION:
                 ret_val = dut.dut_library_object.verify_ap_connected_to_controller(idx=idx,
                                                                                    attach_allure=False)
                 if not ret_val:
-                    pytest.fail("AP is in disconnected state from AMPQ!!!")
+                    pytest.fail("AP is in disconnected state from AMQP!!!")
 
                 else:
-                    logging.info("AP is in connected state to AMPQ!!!")
+                    logging.info("AP is in connected state to AMQP!!!")
 
             resp = dut.uprofile_utility_object.push_wan_dhcp_with_management_vlan(
                 get_testbed_details, idx
@@ -5881,10 +5881,10 @@ ROAM DETECTION:
                 ret_val = dut.dut_library_object.verify_ap_connected_to_controller(idx=idx,
                                                                                    attach_allure=False)
                 if not ret_val:
-                    pytest.fail("AP is in disconnected state from AMPQ!!!")
+                    pytest.fail("AP is in disconnected state from AMQP!!!")
 
                 else:
-                    logging.info("AP is in connected state to AMPQ!!!")
+                    logging.info("AP is in connected state to AMQP!!!")
 
             resp = dut.uprofile_utility_object.push_wan_dhcp_with_management_vlan(
                 get_testbed_details, idx
