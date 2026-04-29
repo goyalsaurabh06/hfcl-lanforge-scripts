@@ -354,6 +354,212 @@ class lf_tests(lf_libs):
 
         return True
 
+    def validate_protocol_formal_report(
+            self,
+            analysis,
+            ap_config=None
+    ):
+        """
+        Formal validation for 11k / 11v / 11r using:
+        - AP Config (UCI)
+        - Beacon Advertisement
+        - Runtime Frame Behavior
+
+        Returns:
+            {
+                "final_status": bool,
+                "report": str
+            }
+        """
+
+        protocol_details = analysis.get("protocol_details", {})
+        frame_counts = analysis.get("frame_counts", {})
+
+        # -----------------------------
+        # STEP 2: AP CONFIG ACTUAL
+        # -----------------------------
+        actual_config = {
+            "11k": ap_config.get("rrm") == "1" if ap_config else False,
+            "11v": ap_config.get("bss_transition") == "1" if ap_config else False,
+            "11r": ap_config.get("ieee80211r") == "1" if ap_config else False,
+        }
+
+        def build_11k():
+            report = []
+            result = "PASS"
+
+            report.append("802.11k (Radio Resource Management) – Expected Behavior:\n")
+            report.append("1. AP Configuration:")
+            report.append("   - wireless.<vap>.rrm = 1\n")
+
+            report.append("2. Beacon Advertisement:")
+            report.append("   - RM Enabled Capabilities IE (Tag 70)\n")
+
+            report.append("3. Runtime Behavior:")
+            report.append("   - Neighbor Report / RRM action frames must be observed")
+            report.append("   - Filter: wlan.fixed.category_code == 5\n")
+
+            report.append("\n802.11k – Observed Behavior:\n")
+
+            # Config
+            if actual_config["11k"]:
+                report.append(" RRM enabled on AP")
+            else:
+                report.append(" RRM NOT enabled on AP")
+                result = "FAIL"
+
+            # Beacon
+            beacon_present = any("RM Enabled" in d for d in protocol_details.get("11k", []))
+            if beacon_present:
+                report.append(" RM Enabled Capabilities IE present in beacon")
+            else:
+                report.append(" RM Capabilities IE NOT present in beacon")
+                result = "FAIL"
+
+            # Runtime
+            if frame_counts.get("11k", 0) > 0:
+                report.append(f" RRM action frames observed ({frame_counts['11k']} frames)")
+            else:
+                report.append(" No RRM action frames observed")
+                result = "FAIL"
+
+            # Verdict
+            report.append(f"\nResult: {result}")
+
+            if result == "FAIL":
+                report.append("Reason: 11k expected behavior not fully satisfied")
+                report.append("\nDebug Steps:")
+                report.append("1. Verify client supports 802.11k")
+                report.append("2. Check neighbor list configuration on AP")
+                report.append("3. Ensure roaming trigger conditions are met")
+
+            return "\n".join(report), result
+
+        def build_11v():
+            report = []
+            result = "PASS"
+
+            report.append("802.11v (BSS Transition Management) – Expected Behavior:\n")
+            report.append("1. AP Configuration:")
+            report.append("   - wireless.<vap>.bss_transition = 1\n")
+
+            report.append("2. Beacon Advertisement:")
+            report.append("   - Extended Capabilities IE (Tag 127)")
+            report.append("   - BSS Transition bit set (Extended Capabilities Octet 3)\n")
+
+            report.append("3. Runtime Behavior:")
+            report.append("   - BTM Query / Request / Response frames must be observed")
+            report.append("   - Filter: wlan.fixed.category_code == 10\n")
+
+            report.append("\n802.11v – Observed Behavior:\n")
+
+            # Config
+            if actual_config["11v"]:
+                report.append(" BSS Transition enabled on AP")
+            else:
+                report.append(" BSS Transition NOT enabled on AP")
+                result = "FAIL"
+
+            # Beacon
+            beacon_present = any("Extended Capabilities" in d for d in protocol_details.get("11v", []))
+            if beacon_present:
+                report.append(" Extended Capabilities IE present in beacon")
+            else:
+                report.append(" Extended Capabilities IE NOT present in beacon")
+                result = "FAIL"
+
+            # Runtime
+            if frame_counts.get("11v", 0) > 0:
+                report.append(f" BTM frames observed ({frame_counts['11v']} frames)")
+            else:
+                report.append(" No BTM frames observed")
+                result = "FAIL"
+
+            # Verdict
+            report.append(f"\nResult: {result}")
+
+            if result == "FAIL":
+                report.append("Reason: 11v expected behavior not fully satisfied")
+                report.append("\nDebug Steps:")
+                report.append("1. Verify client supports 802.11v")
+                report.append("2. Check RSSI threshold for steering trigger")
+                report.append("3. Inspect hostapd logs for BTM request generation")
+                report.append("4. Ensure band steering policy is active")
+
+            return "\n".join(report), result
+
+        def build_11r():
+            report = []
+            result = "PASS"
+
+            report.append("802.11r (Fast BSS Transition) – Expected Behavior:\n")
+            report.append("1. AP Configuration:")
+            report.append("   - ieee80211r = 1")
+            report.append("   - mobility_domain must be configured\n")
+
+            report.append("2. Beacon Advertisement:")
+            report.append("   - Mobility Domain IE (Tag 54)\n")
+
+            report.append("3. Runtime Behavior:")
+            report.append("   - FT Authentication must occur")
+            report.append("   - Filter: wlan.fixed.auth_alg == 2\n")
+
+            report.append("\n802.11r – Observed Behavior:\n")
+
+            # Config
+            if actual_config["11r"]:
+                report.append(" 802.11r enabled on AP")
+            else:
+                report.append(" 802.11r NOT enabled on AP")
+                result = "FAIL"
+
+            # Beacon
+            beacon_present = any("Mobility Domain" in d for d in protocol_details.get("11r", []))
+            if beacon_present:
+                report.append(" Mobility Domain IE present in beacon")
+            else:
+                report.append(" Mobility Domain IE NOT present in beacon")
+                result = "FAIL"
+
+            # Runtime
+            if frame_counts.get("11r", 0) > 0:
+                report.append(f" FT Authentication observed ({frame_counts['11r']} frames)")
+            else:
+                report.append(" No FT Authentication observed")
+                result = "FAIL"
+
+            # Verdict
+            report.append(f"\nResult: {result}")
+
+            if result == "FAIL":
+                report.append("Reason: 11r expected behavior not fully satisfied")
+                report.append("\nDebug Steps:")
+                report.append("1. Verify client supports 802.11r")
+                report.append("2. Check FT over DS / FT over Air configuration")
+                report.append("3. Validate PMK caching and key hierarchy")
+                report.append("4. Ensure same Mobility Domain across APs")
+
+            return "\n".join(report), result
+
+        r11k, res_k = build_11k()
+        r11v, res_v = build_11v()
+        r11r, res_r = build_11r()
+
+        reports = [
+            r11k,
+            "\n" + "=" * 80,
+            r11v,
+            "\n" + "=" * 80,
+            r11r
+        ]
+
+        final_status = not ("FAIL" in [res_k, res_v, res_r])
+
+        return {
+            "final_status": final_status,
+            "report": "\n\n".join(reports)
+        }
+
     def analyze_sniffer_pcap(
             self,
             pcap_path: str,
@@ -1788,8 +1994,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -2095,8 +2299,6 @@ ROAM DETECTION:
                 initial_band_pref="5GHz",
                 traffic="download"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -2453,8 +2655,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -2813,8 +3013,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 0, idx - 3)
                 band_steer.set_atten('1.1.3002', 400, idx - 1)
@@ -3158,8 +3356,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             overall_status = "PASS"
             iteration_results = {}
 
@@ -3470,8 +3666,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- SSID Scan results --------------------
             data_scan_ssid = self.scan_ssid(radio=dict_all_radios_5g["mtk_radios"][0], ssid=ssid)
             logging.info("ssid scan data: " + str(data_scan_ssid))
@@ -3895,8 +4089,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # ---------- Initial Attenuation ----------
             for idx in range(3, 5):
                 band_steer.set_atten("1.1.3009", 0, idx - 3)
@@ -4266,8 +4458,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
             self.add_vlan(vlan_ids=[vlan_id], build=True)
@@ -4586,8 +4776,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- QVLAN Creation --------------------
             vlan_id = 100
             self.add_vlan(vlan_ids=[vlan_id], build=True)
@@ -4936,8 +5124,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 400, idx - 3)
                 band_steer.set_atten('1.1.3002', 400, idx - 1)
@@ -5287,8 +5473,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Management VLAN Creation --------------------
             idx = 0
             qvlan_id = 100
@@ -5670,8 +5854,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Management VLAN Creation --------------------
             idx = 0
             dut = get_target_object
@@ -6173,8 +6355,6 @@ ROAM DETECTION:
                 sniff_channel_2=test_config.get("sniff_channel_2", "36"),
                 upstream=list(get_testbed_details["traffic_generator"]["details"]["wan_ports"].keys())[0]
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
@@ -6223,6 +6403,22 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "0",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
             # Check results
             if analysis["pass_status"]:
                 print(f"PASS: {analysis['result']}")
@@ -6260,8 +6456,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Initial Attenuation --------------------
 
             for idx in range(3, 5):
@@ -6479,6 +6673,22 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "0",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
+
             if not analysis["pass_status"]:
                 pcap_failures.append({
                     "bssid": test_config.get("bssid_5g"),
@@ -6574,6 +6784,19 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "0"
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             if not analysis["pass_status"]:
                 pcap_failures.append({
                     "bssid": test_config.get("bssid_5g"),
@@ -6620,8 +6843,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Initial Attenuation --------------------
 
             for idx in range(3, 5):
@@ -6789,6 +7010,19 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "0"
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             if not analysis["pass_status"]:
                 pcap_failures.append({
                     "bssid": test_config.get("bssid_5g"),
@@ -7201,6 +7435,21 @@ ROAM DETECTION:
                             "details": analysis["details"]
                         })
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 6. Determine overall pass/fail
             all_pass = not functional_failures and not pcap_failures
 
@@ -7281,8 +7530,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             radio = "wifi0"
             channel = 149
 
@@ -7557,6 +7804,21 @@ ROAM DETECTION:
                             "details": analysis["details"]
                         })
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 6. Determine overall pass/fail
             all_pass = not functional_failures and not pcap_failures
 
@@ -7636,8 +7898,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
 
@@ -7914,6 +8174,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -8241,6 +8516,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -8343,6 +8633,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.TEXT
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # Check results
             if analysis["pass_status"]:
                 print(f"PASS: {analysis['result']}")
@@ -8665,6 +8970,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -8723,8 +9043,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             expected_band = test_config.get("expected_band")
             channel_condition = test_config.get("channel_condition")
 
@@ -9095,6 +9413,21 @@ ROAM DETECTION:
                             "details": analysis["details"]
                         })
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 6. Determine overall pass/fail
             all_pass = not functional_failures and not pcap_failures
 
@@ -9176,8 +9509,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -9461,6 +9792,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -9515,8 +9861,6 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
@@ -9799,6 +10143,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -9853,17 +10212,10 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
-
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
@@ -10152,6 +10504,21 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 10. Print summary
             print("\n" + "=" * 60)
             print("ROAMING TEST SUMMARY")
@@ -10206,17 +10573,10 @@ ROAM DETECTION:
                 custom_wifi_cmd=test_config.get("custom_wifi_cmd", 'bgscan="simple:15:-65:60:4"'),
                 initial_band_pref="5GHz"
             )
-            # get_target_object.dut_library_object.get_radio_mac_addresses()
-
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 900, idx - 3)
                 band_steer.set_atten('1.1.3002', 900, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
-
-            # -------------------- Enable 802.11kvr --------------------
-            # get_target_object.dut_library_object.configure_roaming_features(enable_11r=True,
-            #                                                                 enable_11k=True,
-            #                                                                 enable_11v=True)
 
             # -------------------- Start Hostapd Log Capture --------------------
             self.start_hostapd_logging(get_target_object, get_testbed_details)
@@ -10476,6 +10836,21 @@ ROAM DETECTION:
                             "details": analysis["details"]
                         })
 
+            formal = self.validate_protocol_formal_report(
+                analysis=analysis,
+                ap_config={
+                    "ieee80211r": "1",
+                    "bss_transition": "1",
+                    "rrm": "1", 
+                    "rm_neighbor_report": "1",
+                    "rrm_beacon_report": "1",
+                }
+            )
+            allure.attach(
+                formal["report"],
+                name="Protocol Validation",
+                attachment_type=allure.attachment_type.TEXT
+            )
             # 6. Determine overall pass/fail
             all_pass = not functional_failures and not pcap_failures
 
