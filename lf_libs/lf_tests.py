@@ -6409,7 +6409,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "0",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -6679,7 +6679,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "0",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -7441,7 +7441,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -7810,7 +7810,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -8180,7 +8180,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -8522,7 +8522,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -8639,7 +8639,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -8976,7 +8976,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -9419,7 +9419,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -9798,7 +9798,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -10149,7 +10149,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -10510,7 +10510,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
@@ -10842,7 +10842,7 @@ ROAM DETECTION:
                     "ieee80211r": "1",
                     "bss_transition": "1",
                     "rrm": "1", 
-                    "rm_neighbor_report": "1",
+                    "rrm_neighbor_report": "1",
                     "rrm_beacon_report": "1",
                 }
             )
