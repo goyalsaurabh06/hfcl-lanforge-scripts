@@ -48,6 +48,9 @@ import os
 import traceback
 import paramiko
 import pandas as pd
+import allure
+import json
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -425,6 +428,10 @@ def main(tx_config=None, target_object=None, dut_obj=None):
     global pf_ignore_offset
     global failed_low_threshold
     client_info_list = []
+    eirp = float(tx_config.get("eirp", 0))
+    hw_limit = float(tx_config.get("hw_limit", 0))
+
+    tx_power_failures = []
 
     parser = argparse.ArgumentParser(description="Cisco TX Power report Script", epilog=EPILOG,
                                      formatter_class=argparse.RawTextHelpFormatter)
@@ -2749,6 +2756,20 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                             while (len(ants) < int(n)):
                                 ants.append("")
                             break
+                    client_rf_info = {
+                        "nss": n,
+                        "signal_avg_dbm": sig,
+                        "beacon_signal_dbm": beacon_sig,
+                        "per_chain_signal_dbm": ants
+                    }
+                    try:
+                        allure.attach(
+                            json.dumps(client_rf_info, indent=2),
+                            name=f"RF Metrics | TX {tx} dBm",
+                            attachment_type=allure.attachment_type.JSON
+                        )
+                    except Exception:
+                        pass
 
                     endp_stats = subprocess.run(
                         ["./lf_firemod.pl", "--manager", lfmgr, "--resource", lfresource, "--endp_vals", "rx_bps",
@@ -2799,7 +2820,7 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                     logg.info("antenna dBm {antstr}".format(antstr=antstr))
                     port_stats = subprocess.run(
                         ["./lf_portmod.pl", "--manager", lfmgr, "--card", lfresource, "--port_name", lfstation,
-                         "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate"],
+                         "--show_port", "AP,IP,Mode,NSS,Bandwidth,Channel,Signal,Noise,Status,RX-Rate,MAC"],
                         capture_output=True, cwd=BASE_DIR, check=True)
                     pss = port_stats.stdout.decode('utf-8', 'ignore')
                     logg.info(pss)
@@ -2820,6 +2841,11 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                     client_info_list.append(client_info)
 
                     logg.info(f"Client snapshot: {client_info}")
+                    allure.attach(
+                        json.dumps(client_info, indent=2),
+                        name=f"Client Info | TX Power {tx} dBm",
+                        attachment_type=allure.attachment_type.JSON
+                    )
 
                     _ap = None
                     _bw = None
@@ -3549,7 +3575,32 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                         e_tot += err
                     print("cc_power: {} ap_power_unit: {}".format(cc_power, ap_power_unit))
                     if (str(cc_power) != str(ap_power_unit)):
-                        err = "ERROR:  Controller Power : %s != AP Power: %s.  " % (cc_power, ap_power_unit)
+                        ap_power = float(ap_power_unit)
+                        cc_power_f = float(cc_power)
+
+                        # CASE 1: HW LIMIT HIT
+                        if ap_power == hw_limit:
+                            err = (
+                                f"INFO: TX limited by HW capability | "
+                                f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, AP={ap_power}"
+                            )
+
+                        # CASE 2: REGULATORY (EIRP) LIMIT HIT
+                        elif ap_power == eirp:
+                            err = (
+                                f"INFO: TX limited by REGULATORY (EIRP) | "
+                                f"REQUESTED={cc_power_f}, EIRP={eirp}, AP={ap_power}"
+                            )
+
+                        # CASE 3: REAL FAILURE
+                        else:
+                            err = (
+                                f"FAIL: TX POWER MISMATCH | "
+                                f"REQUESTED={cc_power_f}, AP={ap_power}, "
+                                f"HW_LIMIT={hw_limit}, EIRP={eirp}"
+                            )
+
+                            tx_power_failures.append(err)
                         logg.info(err)
                         csv.write(err)
                         csvs.write(err)
@@ -3873,7 +3924,8 @@ def main(tx_config=None, target_object=None, dut_obj=None):
     return {
         "report_dir": kpi_path,
         "results_dir_name": results_dir_name,
-        "client_info": client_info_list
+        "client_info": client_info_list,
+        "tx_power_failures" : tx_power_failures
     }
 
 
