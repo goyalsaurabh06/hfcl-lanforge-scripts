@@ -1675,10 +1675,14 @@ ROAM DETECTION:
                     frame_type = "RRM (11k)"
                 elif str(f.get("auth_alg")) == "2":
                     frame_type = "FT Auth (11r)"
-                elif f["subtype"] in [0, 2]:
-                    frame_type = "Assoc/Reassoc Req"
-                elif f["subtype"] in [1, 3]:
-                    frame_type = "Assoc/Reassoc Resp"
+                elif f["subtype"] == 0:
+                    frame_type = "Association Request"
+                elif f["subtype"] == 1:
+                    frame_type = "Association Response"
+                elif f["subtype"] == 2:
+                    frame_type = "Reassociation Request"
+                elif f["subtype"] == 3:
+                    frame_type = "Reassociation Response"
                 else:
                     continue
 
