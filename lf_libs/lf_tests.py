@@ -395,6 +395,8 @@ class lf_tests(lf_libs):
             report.append("802.11k (Radio Resource Management) – Expected Behavior:\n")
             report.append("1. AP Configuration:")
             report.append("   - wireless.<vap>.rrm = 1\n")
+            report.append("   - wireless.<vap>.rrm_neighbor_report = 1\n")
+            report.append("   - wireless.<vap>.rrm_beacon_report = 1\n")
 
             report.append("2. Beacon Advertisement:")
             report.append("   - RM Enabled Capabilities IE (Tag 70)\n")
@@ -6403,7 +6405,7 @@ ROAM DETECTION:
 
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Sumamry",
+                name=f"Roaming Summary",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6673,7 +6675,7 @@ ROAM DETECTION:
 
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Sumamry",
+                name=f"Roaming Summary",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -6784,7 +6786,7 @@ ROAM DETECTION:
             )
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Sumamry",
+                name=f"Roaming Summary",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -7010,7 +7012,7 @@ ROAM DETECTION:
             )
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Sumamry",
+                name=f"Roaming Summary",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -7419,15 +7421,15 @@ ROAM DETECTION:
                         show_events=True,
                         frame_view=True
                     )
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
 
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -7790,14 +7792,14 @@ ROAM DETECTION:
                         show_events=True,
                         frame_view=True
                     )
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
                     if not analysis["pass_status"]:
@@ -8132,14 +8134,14 @@ ROAM DETECTION:
                         show_events=True,
                         frame_view=True
                     )
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -8474,14 +8476,14 @@ ROAM DETECTION:
                         show_events=True,
                         frame_view=True
                     )
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -8633,7 +8635,7 @@ ROAM DETECTION:
             )
             allure.attach(
                 analysis["report_text"],
-                name=f"Roaming Sumamry",
+                name=f"Roaming Summary",
                 attachment_type=allure.attachment_type.TEXT
             )
 
@@ -8935,7 +8937,7 @@ ROAM DETECTION:
                     )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -9405,7 +9407,7 @@ ROAM DETECTION:
                     )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -9750,14 +9752,14 @@ ROAM DETECTION:
                         show_events=True,
                         frame_view=True
                     )
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -10101,14 +10103,14 @@ ROAM DETECTION:
                         frame_view=True
                     )
 
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -10462,14 +10464,14 @@ ROAM DETECTION:
                         frame_view=True
                     )
 
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
@@ -10821,14 +10823,14 @@ ROAM DETECTION:
                         frame_view=True
                     )
 
-                    allure.attach(
-                        json.dumps(analysis, indent=4),
-                        name=f"Roaming Sniffer Analysis {sta}",
-                        attachment_type=allure.attachment_type.JSON
-                    )
+                    # allure.attach(
+                    #     json.dumps(analysis, indent=4),
+                    #     name=f"Roaming Sniffer Analysis {sta}",
+                    #     attachment_type=allure.attachment_type.JSON
+                    # )
                     allure.attach(
                         analysis["report_text"],
-                        name=f"Roaming Sumamry {sta}",
+                        name=f"Roaming Summary {sta}",
                         attachment_type=allure.attachment_type.TEXT
                     )
 
