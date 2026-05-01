@@ -190,7 +190,6 @@ class lf_tests(lf_libs):
         tx_config["lfmgr"] = self.manager_ip
         tx_config["lfport"] = self.manager_http_port
         tx_config["series"] = "HFCL"
-        tx_config["ap"] = "HFCL"
         tx_config["wifi_mode"] = "auto"
         tx_config["ieee80211w"] = str(1)
         tx_config.setdefault("scheme", "ssh")  # required by parser
@@ -270,12 +269,15 @@ class lf_tests(lf_libs):
         report_dir = result.get("report_dir")
         client_data = result.get("client_info", [])
         logging.info("client data:- " + str(client_data))
-        if client_data:
-            allure.attach(
-                json.dumps(client_data, indent=4),
-                name="Client Info Per TX Sweep",
-                attachment_type=allure.attachment_type.JSON
-            )
+        failures_tx = result.get("tx_power_failures", [])
+        logging.info("failures_tx:- " + str(failures_tx))
+
+        # if client_data:
+        #     allure.attach(
+        #         json.dumps(client_data, indent=4),
+        #         name="Client Info Per TX Sweep",
+        #         attachment_type=allure.attachment_type.JSON
+        #     )
 
         # ⭐ convert to absolute path (critical fix)
         report_dir = os.path.abspath(report_dir) if report_dir else None
@@ -351,6 +353,8 @@ class lf_tests(lf_libs):
         except Exception as e:
             logging.error(f"KPI validation failed: {e}")
             return False
+        if failures_tx:
+            pytest.fail("\n".join(failures_tx))
 
         return True
 
