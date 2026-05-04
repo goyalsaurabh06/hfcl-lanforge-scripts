@@ -389,6 +389,31 @@ class lf_tests(lf_libs):
         }
 
         def build_11k():
+            """
+                Generate validation report for 802.11k (Radio Resource Management).
+
+                This method validates whether 802.11k is correctly configured and functioning
+                by checking AP configuration, beacon advertisement, and runtime frame behavior.
+
+                Validation Criteria:
+
+                    1. AP Configuration:
+                        - RRM enabled (rrm = 1)
+                        - Neighbor report enabled
+                        - Beacon report enabled
+
+                    2. Beacon Advertisement:
+                        - RM Enabled Capabilities IE (Tag 70)
+
+                    3. Runtime Behavior:
+                        - Presence of RRM action frames
+                        - Filter: wlan.fixed.category_code == 5
+
+                Returns:
+                    Tuple[str, str]:
+                        - Detailed human-readable report
+                        - Result status ("PASS" or "FAIL")
+                """
             report = []
             result = "PASS"
 
@@ -442,6 +467,30 @@ class lf_tests(lf_libs):
             return "\n".join(report), result
 
         def build_11v():
+            """
+            Generate validation report for 802.11v (BSS Transition Management).
+
+            This method verifies whether 802.11v steering capabilities are properly
+            advertised and operational using beacon and runtime frame analysis.
+
+            Validation Criteria:
+
+                1. AP Configuration:
+                    - BSS Transition enabled (bss_transition = 1)
+
+                2. Beacon Advertisement:
+                    - Extended Capabilities IE (Tag 127)
+                    - BSS Transition bit set
+
+                3. Runtime Behavior:
+                    - BTM Query / Request / Response frames observed
+                    - Filter: wlan.fixed.category_code == 10
+
+            Returns:
+                Tuple[str, str]:
+                    - Detailed human-readable report
+                    - Result status ("PASS" or "FAIL")
+            """
             report = []
             result = "PASS"
 
@@ -495,6 +544,30 @@ class lf_tests(lf_libs):
             return "\n".join(report), result
 
         def build_11r():
+            """
+            Generate validation report for 802.11r (Fast BSS Transition).
+
+            This method validates fast roaming capability using FT authentication,
+            beacon advertisement, and configuration checks.
+
+            Validation Criteria:
+
+                1. AP Configuration:
+                    - 802.11r enabled (ieee80211r = 1)
+                    - Mobility domain configured
+
+                2. Beacon Advertisement:
+                    - Mobility Domain IE (Tag 54)
+
+                3. Runtime Behavior:
+                    - FT Authentication frames observed
+                    - Filter: wlan.fixed.auth_alg == 2
+
+            Returns:
+                Tuple[str, str]:
+                    - Detailed human-readable report
+                    - Result status ("PASS" or "FAIL")
+            """
             report = []
             result = "PASS"
 
@@ -572,7 +645,7 @@ class lf_tests(lf_libs):
             client_mac: str = None,
             bssid: str = None,
             mode: str = "band_steering",
-            check_protocol: str = None,  # New: "11k", "11v", "11r", or None for all
+            check_protocol: str = None,  # check_protocol: "11k", "11v", "11r", or None for all
             window: float = 15.0,
             bssid_list: list = None,
             show_events: bool = False,
@@ -682,15 +755,51 @@ class lf_tests(lf_libs):
 
             return filters
 
-        def build_static_logic_reference():
-            return """
-ANALYSIS LOGIC REFERENCE:
+        def build_static_logic_reference(mode: str = "all"):
+            """
+                Build a static reference describing protocol analysis logic used in PCAP evaluation.
 
-BAND STEERING:
-  - Detect BTM Request (11v)
-  - Check client moves to different BSSID
-  - Validate band transition (2.4G ↔ 5G/6G)
+                This reference outlines how different Wi-Fi features are detected and validated
+                during analysis, including band steering, 802.11k, 802.11v, 802.11r, and roaming.
 
+                Args:
+                    mode (str, optional):
+                        Controls which sections of the reference are returned.
+                        Supported values:
+                            - "band_steering": Includes only 11k and 11v logic (used for steering analysis)
+                            - "all": Includes full reference (11k, 11v, 11r, and roaming)
+
+                Returns:
+                    str:
+                        A formatted multi-line string containing the relevant analysis logic reference.
+
+                Logic Coverage:
+
+                    BAND STEERING:
+                        - Detect BTM Request (802.11v)
+                        - Verify client transition to a different BSSID
+                        - Validate band change (2.4GHz ↔ 5GHz/6GHz)
+
+                    802.11k:
+                        - RRM action frames (category_code = 5)
+                        - Neighbor Report IE (Tag 52)
+                        - RM Capabilities in beacon frames
+
+                    802.11v:
+                        - BTM Request / Response / Query (category_code = 10)
+                        - Extended Capabilities IE (Tag 127)
+
+                    802.11r:
+                        - Fast Transition authentication (auth_alg = 2)
+                        - Mobility Domain IE (Tag 54)
+                        - RSN FT AKM (Tag 48)
+
+                    ROAM DETECTION:
+                        - BSSID transition within a defined time window
+                        - Association Response or FT Authentication as roam trigger
+                """
+            band_steering_section = """
+BAND STEERING (uses 802.11v / optionally 802.11k):
 802.11k:
   - RRM frames (category_code = 5)
   - Neighbor Report IE (tag 52)
@@ -699,6 +808,12 @@ BAND STEERING:
 802.11v:
   - BTM Request/Response (category_code = 10)
   - Extended Capabilities IE (tag 127)
+        """
+
+            full_reference = f"""
+ANALYSIS LOGIC REFERENCE:
+
+{band_steering_section}
 
 802.11r:
   - FT Authentication (auth_alg = 2)
@@ -708,11 +823,17 @@ BAND STEERING:
 ROAM DETECTION:
   - BSSID transition within time window
   - Assoc Response OR FT Authentication
-            """
+        """
 
-        # -------------------------------
-        # TSHARK - Enhanced for 11k/11v/11r (supports client MAC or BSSID)
-        # -------------------------------
+            if mode == "band_steering":
+                return f"""
+ANALYSIS LOGIC REFERENCE:
+
+{band_steering_section}
+        """
+            else:
+                return full_reference
+
         def run_tshark():
             # Build filter based on available identifiers
             filter_parts = []
@@ -790,6 +911,10 @@ ROAM DETECTION:
                 "-e", "wlan.fixed.auth.alg",
                 "-e", "wlan.fixed.category_code",
                 "-e", "wlan.fixed.action_code",
+                "-e", "wlan.fixed.bss_transition_status_code",
+                "-e", "wlan.fixed.bss_transition_target_bss",
+                "-e", "wlan.fixed.bss_transition_query_reason",
+                "-e", "wlan.fixed.bss_transition_candidate_list_entries",
                 "-e", "wlan_radio.channel",
                 "-e", "_ws.col.Info",
                 "-e", "wlan.tag.number",
@@ -807,7 +932,7 @@ ROAM DETECTION:
 
             for line in lines[1:]:
                 values = line.split('|')
-                if len(values) < 17:
+                if len(values) < 21:
                     continue
 
                 try:
@@ -817,33 +942,34 @@ ROAM DETECTION:
                     ts_val = 0.0
 
                 frames.append({
-                    "no": clean_quoted_value(values[0] if len(values) > 0 else ""),
-                    "ts": ts_val,
-                    "ta": norm(clean_quoted_value(values[2] if len(values) > 2 else "")),
-                    "ra": norm(clean_quoted_value(values[3] if len(values) > 3 else "")),
-                    "sa": norm(clean_quoted_value(values[4] if len(values) > 4 else "")),
-                    "da": norm(clean_quoted_value(values[5] if len(values) > 5 else "")),
-                    "bssid": norm(clean_quoted_value(values[6] if len(values) > 6 else "")),
-                    "ssid": decode_ssid(values[7] if len(values) > 7 else ""),
-                    # "subtype": parse_int(clean_quoted_value(values[8] if len(values) > 8 else "")),
+                    "no": clean_quoted_value(values[0]),
+                    "ts": float(clean_quoted_value(values[1]) or 0),
+
+                    "ta": norm(clean_quoted_value(values[2])),
+                    "ra": norm(clean_quoted_value(values[3])),
+                    "sa": norm(clean_quoted_value(values[4])),
+                    "da": norm(clean_quoted_value(values[5])),
+
+                    "bssid": norm(clean_quoted_value(values[6])),
+                    "ssid": decode_ssid(values[7]),
+
                     "type": parse_int(clean_quoted_value(values[8])),
                     "subtype": parse_int(clean_quoted_value(values[9])),
+
                     "auth_alg": clean_quoted_value(values[10]),
                     "cat": parse_int(clean_quoted_value(values[11])),
                     "action": parse_int(clean_quoted_value(values[12])),
-                    "channel": clean_quoted_value(values[13]),
-                    "info": clean_quoted_value(values[14]),
-                    "tag_numbers": clean_quoted_value(values[15]),
-                    "mobility_domain": clean_quoted_value(values[16]) if len(values) > 16 else "",
-                    # "auth_alg": clean_quoted_value(values[9] if len(values) > 9 else ""),
-                    # "cat": parse_int(clean_quoted_value(values[10] if len(values) > 10 else "")),
-                    # "action": parse_int(clean_quoted_value(values[11] if len(values) > 11 else "")),
-                    # "channel": clean_quoted_value(values[12] if len(values) > 12 else ""),
-                    # "info": clean_quoted_value(values[13] if len(values) > 13 else ""),
-                    # "tag_numbers": clean_quoted_value(values[14] if len(values) > 14 else ""),
-                    # "mobility_domain": clean_quoted_value(values[15] if len(values) > 15 else ""),
-                })
 
+                    "btm_status": clean_quoted_value(values[13]),
+                    "target_bss": norm(clean_quoted_value(values[14])),
+                    "query_reason": clean_quoted_value(values[15]),
+                    "candidate_list": clean_quoted_value(values[16]),
+
+                    "channel": clean_quoted_value(values[17]),
+                    "info": clean_quoted_value(values[18]),
+                    "tag_numbers": clean_quoted_value(values[19]),
+                    "mobility_domain": clean_quoted_value(values[20]),
+                })
             return sorted(frames, key=lambda x: x["ts"]), frame_filter
 
         def is_rrm_enabled_in_beacon(frames):
@@ -1040,14 +1166,30 @@ ROAM DETECTION:
                         seen_frames['11v'].add(f["no"])
 
                     action_name = {
-                        8: "Query",
-                        6: "Request",
-                        7: "Response"
+                        6: "Query",
+                        7: "Request",
+                        8: "Response"
                     }.get(f["action"], f"action={f['action']}")
 
-                    protocols['11v']['details'].add(
-                        f"{f['bssid']} => BTM {action_name}"
-                    )
+                    # protocols['11v']['details'].add(
+                    #     f"{f['bssid']} => BTM {action_name}"
+                    # )
+                    status = f.get("btm_status")
+
+                    if f["action"] == 8:  # BTM Response
+                        if status:
+                            status_text = "Accepted" if status == "0" else f"Rejected({status})"
+                            protocols['11v']['details'].add(
+                                f"{f['bssid']} => BTM Response ({status_text})"
+                            )
+                        else:
+                            protocols['11v']['details'].add(
+                                f"{f['bssid']} => BTM Response (status unknown)"
+                            )
+                    else:
+                        protocols['11v']['details'].add(
+                            f"{f['bssid']} => BTM {action_name}"
+                        )
 
                 if "127" in tags:
                     protocols['11v']['details'].add("Extended Capabilities IE")
@@ -1117,30 +1259,22 @@ ROAM DETECTION:
 
                 # 11v (BTM) events
                 if f["cat"] == 10 and f["action"] in [6, 7, 8]:
-                    if f["action"] == 6:
-                        events.append({
-                            "kind": "btm_request",
-                            "ts": f["ts"],
-                            "frame": f["no"],
-                            "band": band,
-                            "bssid": f["bssid"]
-                        })
-                    elif f["action"] == 7:
-                        events.append({
-                            "kind": "btm_response",
-                            "ts": f["ts"],
-                            "frame": f["no"],
-                            "band": band,
-                            "bssid": f["bssid"]
-                        })
+                    if f["action"] == 7:
+                        kind = "btm_request"
                     elif f["action"] == 8:
-                        events.append({
-                            "kind": "btm_query",
-                            "ts": f["ts"],
-                            "frame": f["no"],
-                            "band": band,
-                            "bssid": f["bssid"]
-                        })
+                        kind = "btm_response"
+                    elif f["action"] == 6:
+                        kind = "btm_query"
+
+                    events.append({
+                        "kind": kind,
+                        "ts": f["ts"],
+                        "frame": f["no"],
+                        "band": band,
+                        "bssid": f["bssid"],
+                        "status": f.get("btm_status"),
+                        "target": f.get("target_bss")
+                    })
 
                 # 11k events
                 if f["cat"] == 5 and f["action"] in [0, 1]:
@@ -1239,10 +1373,14 @@ ROAM DETECTION:
 
             # First, collect all association points (both classic and FT)
             connection_points = []
+            if mode == "band_steering":
+                consider_ft = False
+            else:
+                consider_ft = True
 
             for i, ev in enumerate(events):
                 # Classic association
-                if ev["kind"] == "assoc_resp" and ev.get("bssid"):
+                if ev["kind"] in ["assoc_resp", "reassoc_resp"] and ev.get("bssid"):
                     connection_points.append({
                         "idx": i,
                         "ts": ev["ts"],
@@ -1251,7 +1389,7 @@ ROAM DETECTION:
                         "type": "assoc"
                     })
                 # FT authentication (11r roaming)
-                elif ev["kind"] == "ft_auth" and ev.get("bssid"):
+                elif consider_ft and ev["kind"] == "ft_auth" and ev.get("bssid"):
                     # Check if this is a successful FT auth (look for corresponding response)
                     # For simplicity, treat FT auth as a connection point
                     connection_points.append({
@@ -1626,12 +1764,17 @@ ROAM DETECTION:
             else:
                 # Show all protocols
                 lines.append(
-                    "\n┌───────────────┬──────────┬──────────────────────────────────────────────────────────────────────────────────")  # ┐
-                lines.append("│ Protocol      │ Status   │ Evidence                            │")
+                    "\n┌───────────────────┬──────────┬─────────────────────────────────────────────────────────────────")  # ┐
+                lines.append("│     Protocol      │ Status   │ Evidence                            │")
                 lines.append(
-                    "├─────────────────┼──────────┼──────────────────────────────────────────────────────────────────────────────────")  # ┤
+                    "├───────────────────┼──────────┼───────────────────────────────────────────────────────────────────")  # ┤
 
-                for proto, name in [('11k', '802.11k (RRM)'), ('11v', '802.11v (BTM)'), ('11r', '802.11r (FT)')]:
+                if mode == "band_steering":
+                    proto_list = [('11k', '802.11k (RRM)'), ('11v', '802.11v (BTM)')]
+                else:
+                    proto_list = [('11k', '802.11k (RRM)'), ('11v', '802.11v (BTM)'), ('11r', '802.11r (FT)')]
+
+                for proto, name in proto_list:
                     data = protocols[proto]
                     status = "✓ ENABLED" if data['enabled'] else "✗ NOT DETECTED"
 
@@ -1648,7 +1791,7 @@ ROAM DETECTION:
                         lines.append(f"│               │          │   ({len(data['frames'])} frames)   ")
 
                     lines.append(
-                        "├─────────────────┼──────────┼──────────────────────────────────────────────────────────────────────────────")  # ┤
+                        "├───────────────────┼──────────┼─────────────────────────────────────────────────────────────────")  # ┤
 
             return "\n".join(lines)
 
@@ -1668,9 +1811,74 @@ ROAM DETECTION:
             shown_frames = []
 
             for f in frames:
-                # Determine frame type
+                band = band_from_channel(f["channel"])
                 if f["cat"] == 10 and f["action"] in [6, 7, 8]:
-                    frame_type = f"BTM (action={f['action']})"
+
+                    action_map = {
+                        6: "BTM-Query",
+                        7: "BTM-Request",
+                        8: "BTM-Response"
+                    }
+
+                    frame_type = action_map.get(f["action"], "BTM")
+
+                    lines.append(
+                        f"{f['no']:>6}  {f['ts']:.6f}  "
+                        f"{f['channel']}({band}): {frame_type:<20} "
+                        f"{f['bssid']:<18}"
+                    )
+
+                    #Pretty details below
+                    indent = " " * 30
+
+                    # Query
+                    if f["action"] == 6:
+                        qr = f.get("query_reason")
+                        if qr is not None:
+                            lines.append(f"{indent}Reason : {qr}")
+
+                    # Request
+                    if f["action"] == 7:
+                        cand = f.get("candidate_list")
+                        if cand:
+                            lines.append(f"{indent}Candidates : {cand[:10]}...")
+
+                    # Response
+                    if f["action"] == 8:
+                        status = f.get("btm_status")
+                        target = f.get("target_bss")
+                        cand = f.get("candidate_list")
+
+                        status_map = {
+                            0: "Accepted",
+                            1: "Unspecified",
+                            2: "Insufficient Beacon",
+                            3: "Insufficient Capability",
+                            4: "Undesired",
+                            5: "Delay Requested",
+                            6: "Candidate Exhausted",
+                            7: "No Suitable Candidates"
+                        }
+
+                        if status is not None:
+                            try:
+                                status_int = int(status)
+                            except:
+                                status_int = None
+
+                            if status_int is not None:
+                                lines.append(
+                                    f"{indent}Status : {status_int} ({status_map.get(status_int, '')})"
+                                )
+                            else:
+                                lines.append(f"{indent}Status : {status} (Invalid)")
+
+                        if target:
+                            lines.append(f"{indent}Target : {target}")
+
+                        if cand:
+                            lines.append(f"{indent}Candidates : {cand[:10]}...")
+
                 elif f["cat"] == 5 and f["action"] in [0, 1]:
                     frame_type = "RRM (11k)"
                 elif str(f.get("auth_alg")) == "2":
@@ -1704,7 +1912,8 @@ ROAM DETECTION:
             if not shown_frames:
                 return "\nNo relevant frames found"
 
-            lines.append(f"{'Frame':>6} {'Time(s)':<12} {'CH':<6} {'Type':<25} {'BSSID':<18}")
+            # lines.append(f"{'Frame':>6} {'Time(s)':<12} {'CH':<6} {'Type':<25} {'BSSID':<18}")
+            lines.append(f"{'Frame':>6} {'Time(s)':<12} {'CH':<8} {'Type':<60} {'BSSID':<18}")
             lines.append("-" * 80)
 
             for f, frame_type in shown_frames[:20]:
@@ -1718,9 +1927,6 @@ ROAM DETECTION:
             lines.append("=" * 120)
             return "\n".join(lines)
 
-        # -------------------------------
-        # MAIN EXECUTION
-        # -------------------------------
         bssid_list = [norm(b) for b in (bssid_list or []) if b]
         if bssid:
             bssid_list.append(norm(bssid))
@@ -1734,7 +1940,7 @@ ROAM DETECTION:
                 "mode": mode,
                 "check_protocol": check_protocol,
                 "result": "FAIL_NO_FRAMES",
-                "details": ["No relevant frames found in capture"],
+                "details": ["No frames matched tshark filter"],
                 "events": [],
                 "protocols": {"11k": False, "11v": False, "11r": False},
                 "protocol_details": {"11k": [], "11v": [], "11r": []},
@@ -1748,6 +1954,13 @@ ROAM DETECTION:
         protocols = detect_protocols(frames)
         events = extract_events(frames)
         eapol_check = None
+
+        if mode == "band_steering":
+            protocols['11r'] = {
+                'enabled': False,
+                'frames': [],
+                'details': []
+            }
 
         if mode == "11kvr_roaming":
             eapol_check = check_no_eapol_on_target_ap(frames, events)
@@ -1800,9 +2013,6 @@ ROAM DETECTION:
             else:
                 raise ValueError(f"Unsupported mode: {mode}")
 
-        # -------------------------------
-        # REPORT BUILDING
-        # -------------------------------
         report = []
         report.append(build_compact_protocol_summary(protocols))
 
@@ -2032,7 +2242,7 @@ ROAM DETECTION:
                 for idx in range(3, 5):
                     band_steer.set_atten('1.1.3009', 950, idx - 1)  # Initial attenuation to 40 for steer_fiveg case
                     band_steer.set_atten('1.1.3002', 950, idx - 3)  # module 1 and 2 setting to MAX
-                    band_steer.set_atten('1.1.3002', 400, idx - 1)
+                    band_steer.set_atten('1.1.3002', 340, idx - 1)
 
                 band_steer.create_clients(
                     radio=dict_all_radios_5g["mtk_radios"][0],
@@ -2348,8 +2558,8 @@ ROAM DETECTION:
 
             else:
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 400, idx - 3)
-                    band_steer.set_atten('1.1.3002', 400, idx - 1)
+                    band_steer.set_atten('1.1.3009', 340, idx - 3)
+                    band_steer.set_atten('1.1.3002', 340, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             time.sleep(5)  # wait to some time for attenuation to be applied
@@ -2706,8 +2916,8 @@ ROAM DETECTION:
 
             else:
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 400, idx - 3)
-                    band_steer.set_atten('1.1.3002', 400, idx - 1)
+                    band_steer.set_atten('1.1.3009', 340, idx - 3)
+                    band_steer.set_atten('1.1.3002', 340, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Station Creation --------------------
@@ -3025,7 +3235,7 @@ ROAM DETECTION:
             )
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 0, idx - 3)
-                band_steer.set_atten('1.1.3002', 400, idx - 1)
+                band_steer.set_atten('1.1.3002', 340, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- Start Sniffer --------------------
@@ -3292,7 +3502,7 @@ ROAM DETECTION:
 
                 print("\nAnalysing Pcap")
 
-                for sta in sta_list:
+                for sta in [sta_list_1[-1]] + [sta_list_2[-1]]:
                     client_mac = test_results.get(sta).get("client_mac")
 
                     analysis = self.analyze_sniffer_pcap(
@@ -3683,7 +3893,7 @@ ROAM DETECTION:
             # ---------- Initial Attenuation ----------
             for idx in range(3, 5):
                 band_steer.set_atten('1.1.3009', 0, idx - 3)
-                band_steer.set_atten('1.1.3002', 400, idx - 1)
+                band_steer.set_atten('1.1.3002', 340, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # Track success count across iterations
@@ -4356,23 +4566,6 @@ ROAM DETECTION:
                 attachment_type=allure.attachment_type.JSON
             )
 
-            for _, result in test_results.items():
-                before_bssid = result.get("before_bssid")
-                after_bssid = result.get("after_bssid")
-                before_channel = result.get("before_channel")
-                after_channel = result.get("after_channel")
-                before_rssi = result.get("before_rssi")
-                after_rssi = result.get("after_rssi")
-
-                # if before_bssid == after_bssid and before_channel == after_channel:
-                #     return False, f'BSSID and Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
-                #
-                # if before_bssid == after_bssid:
-                #     return False, f'BSSID did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
-                #
-                # if before_channel == after_channel:
-                #     return False, f'Channel did not change after attenuation, before steer rssi {before_rssi} and after steer rssi {after_rssi}'
-
             # -------------------- Stop Sniffer --------------------
             local_pcap = band_steer.stop_sniffer()
 
@@ -4387,7 +4580,30 @@ ROAM DETECTION:
                 print("Allure attach failed:", e)
 
             print(f"[DEBUG] Station-Radio Mapping: {station_radio_map}")
+            functional_failures = []
+            pcap_failures = []
+            for sta in sta_list_2:
+                client_mac = test_results.get(sta).get("client_mac")
 
+                analysis = self.analyze_sniffer_pcap(
+                    pcap_path=local_pcap,
+                    client_mac=client_mac,
+                    mode="band_steering",
+                    show_events=True
+                )
+
+                allure.attach(
+                    analysis["report_text"],
+                    name=f"Band Steering Analysis {sta} - {client_mac}",
+                    attachment_type=allure.attachment_type.TEXT
+                )
+
+                if not analysis["pass_status"]:
+                    pcap_failures.append({
+                        "sta": sta,
+                        "client_mac": client_mac,
+                        "reason": analysis["result"]
+                    })
             # Attach the station-radio mapping to allure for debugging
             allure.attach(
                 body=json.dumps(station_radio_map, indent=4),
@@ -4400,7 +4616,12 @@ ROAM DETECTION:
                     print(f"[DEBUG] Collecting supplicant logs for radio {radio}, stations: {stations}")
                     self.get_supplicant_logs(radio=str(radio), sta_list=stations)
 
-            return True, test_results
+            all_pass = not functional_failures and not pcap_failures
+            return all_pass, {
+                "functional_failures": functional_failures,
+                "pcap_failures": pcap_failures,
+                "per_client": test_results
+            }
 
         elif test_type == "vlan_standard":
             """
@@ -4802,7 +5023,7 @@ ROAM DETECTION:
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
             else:
                 for idx in range(3, 5):
-                    band_steer.set_atten('1.1.3009', 400, idx - 3)
+                    band_steer.set_atten('1.1.3009', 340, idx - 3)
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
 
@@ -5135,8 +5356,8 @@ ROAM DETECTION:
                 initial_band_pref="5GHz"
             )
             for idx in range(3, 5):
-                band_steer.set_atten('1.1.3009', 400, idx - 3)
-                band_steer.set_atten('1.1.3002', 400, idx - 1)
+                band_steer.set_atten('1.1.3009', 340, idx - 3)
+                band_steer.set_atten('1.1.3002', 340, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
             # -------------------- SSID Scan results --------------------
@@ -5559,7 +5780,7 @@ ROAM DETECTION:
                 for idx in range(3, 5):
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
-                    band_steer.set_atten('1.1.3009', 400, idx - 3)
+                    band_steer.set_atten('1.1.3009', 340, idx - 3)
 
             # -------------------- Start Sniffer --------------------
             band_steer.start_sniffer()
@@ -5914,7 +6135,7 @@ ROAM DETECTION:
                     band_steer.set_atten('1.1.3002', 0, idx - 1)
                     band_steer.set_atten('1.1.3002', 0, idx - 3)
             else:
-                band_steer.set_atten('1.1.3009', 400, idx - 3)
+                band_steer.set_atten('1.1.3009', 340, idx - 3)
                 band_steer.set_atten('1.1.3002', 0, idx - 1)
                 band_steer.set_atten('1.1.3002', 0, idx - 3)
 
