@@ -3574,23 +3574,51 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                         csvs.write(err)
                         e_tot += err
                     print("cc_power: {} ap_power_unit: {}".format(cc_power, ap_power_unit))
-                    if (str(cc_power) != str(ap_power_unit)):
+                    """
+                    Validate TX power applied on AP.
+
+                    - If AP power equals HW limit → valid only when HW < EIRP
+                    - If AP power equals EIRP → valid only when EIRP <= HW
+                    - Otherwise → considered failure
+
+                    Runs only when requested power != applied power.
+                    """
+                    if (float(cc_power) != float(ap_power_unit)):
                         ap_power = float(ap_power_unit)
                         cc_power_f = float(cc_power)
+                        logging.info("Comparing AP power: {} to configured power: {}".format(ap_power, cc_power_f))
 
                         # CASE 1: HW LIMIT HIT
                         if ap_power == hw_limit:
-                            err = (
-                                f"INFO: TX limited by HW capability | "
-                                f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, AP={ap_power}"
-                            )
+                            #  FIX: HW is valid ONLY if HW < EIRP
+                            if hw_limit < eirp:
+                                err = (
+                                    f"INFO: TX limited by HW capability | "
+                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, AP={ap_power}"
+                                )
+                            else:
+                                err = (
+                                    f"FAIL: REGULATORY VIOLATION | "
+                                    f"AP applied HW instead of EIRP | "
+                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, EIRP={eirp}, AP={ap_power}"
+                                )
+                                tx_power_failures.append(err)
 
                         # CASE 2: REGULATORY (EIRP) LIMIT HIT
                         elif ap_power == eirp:
-                            err = (
-                                f"INFO: TX limited by REGULATORY (EIRP) | "
-                                f"REQUESTED={cc_power_f}, EIRP={eirp}, AP={ap_power}"
-                            )
+                            #  FIX: EIRP is valid ONLY if EIRP <= HW
+                            if eirp <= hw_limit:
+                                err = (
+                                    f"INFO: TX limited by REGULATORY (EIRP) | "
+                                    f"REQUESTED={cc_power_f}, EIRP={eirp}, AP={ap_power}"
+                                )
+                            else:
+                                err = (
+                                    f"FAIL: WRONG LIMIT APPLIED | "
+                                    f"AP applied EIRP instead of HW | "
+                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, EIRP={eirp}, AP={ap_power}"
+                                )
+                                tx_power_failures.append(err)
 
                         # CASE 3: REAL FAILURE
                         else:
@@ -3599,7 +3627,6 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                                 f"REQUESTED={cc_power_f}, AP={ap_power}, "
                                 f"HW_LIMIT={hw_limit}, EIRP={eirp}"
                             )
-
                             tx_power_failures.append(err)
                         logg.info(err)
                         csv.write(err)

@@ -338,6 +338,8 @@ class lf_tests(lf_libs):
             fail_count = status_list.count("FAIL")
             logging.info("status_list:- " + str(status_list))
             logging.info("fail_count:- " + str(fail_count))
+            if failures_tx:
+                pytest.fail("\n".join(failures_tx))
 
             if fail_count > 0:
                 logging.error(f"TX Power FAILED → {fail_count} failures out of {len(status_list)}")
@@ -353,8 +355,7 @@ class lf_tests(lf_libs):
         except Exception as e:
             logging.error(f"KPI validation failed: {e}")
             return False
-        if failures_tx:
-            pytest.fail("\n".join(failures_tx))
+
 
         return True
 
