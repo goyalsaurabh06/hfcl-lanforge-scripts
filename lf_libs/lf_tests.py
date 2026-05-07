@@ -6893,7 +6893,7 @@ ANALYSIS LOGIC REFERENCE:
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -8006,7 +8006,7 @@ ANALYSIS LOGIC REFERENCE:
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -8351,7 +8351,7 @@ ANALYSIS LOGIC REFERENCE:
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -8693,7 +8693,7 @@ ANALYSIS LOGIC REFERENCE:
 
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -9146,7 +9146,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -9567,7 +9567,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -9969,7 +9969,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -10320,7 +10320,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -10680,7 +10680,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
@@ -11040,7 +11040,7 @@ ANALYSIS LOGIC REFERENCE:
             )
             allure.attach(
                 body=json.dumps(after_state, indent=4),
-                name="After Band Steering Station BSSID & Channel",
+                name="After Roam Station BSSID & Channel",
                 attachment_type=allure.attachment_type.JSON
             )
             allure.attach(
