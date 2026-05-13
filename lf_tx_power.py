@@ -1217,19 +1217,19 @@ def main(tx_config=None, target_object=None, dut_obj=None):
     worksheet.write(row, col, 'Client Reported\nAntenna\nSignal\ndBm\n SS 4', dpeach_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 1 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+    worksheet.write(row, col, 'Calculated Antenna 1 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n - ant gain',
                     dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 2 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+    worksheet.write(row, col, 'Calculated Antenna 2 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n - ant gain',
                     dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 3 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+    worksheet.write(row, col, 'Calculated Antenna 3 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n - ant gain',
                     dpink_bold)
     col += 1
     worksheet.set_column(col, col, 25)  # Set width
-    worksheet.write(row, col, 'Calculated Antenna 4 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n + ant gain',
+    worksheet.write(row, col, 'Calculated Antenna 4 =\n Antenna Sig dBm\n + pathloss\n + rssi_adj\n - ant gain',
                     dpink_bold)
     col += 1
     worksheet.set_column(col, col, 20)  # Set width
@@ -2294,7 +2294,10 @@ def main(tx_config=None, target_object=None, dut_obj=None):
 
                     # Generic Modules
                     else:
-                        output = dut.run_generic_command("iw dev")
+
+                        output = dut.run_generic_command(cmd="iw dev", idx=0,
+                                                        attach_name="iw dev for tx power " + str(tx) + " dBm",
+                                                       attach_allure=True)
 
                         cc_mac = "N/A"
                         cc_ch = "N/A"
@@ -2370,7 +2373,7 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                             cc_mac = selected.get("mac", "N/A")
                             cc_ch = selected.get("channel", "N/A")
                             cc_power = tx
-                            logg.info("fixed issue cc_power:-" + str(cc_power))
+                            logg.info("cc_power:-" + str(cc_power))
                             cc_power_ = selected.get("txpower", "N/A")
                             cc_dbm = cc_power_
                             ch_count = selected.get("ifindex", "N/A")
@@ -2915,11 +2918,11 @@ def main(tx_config=None, target_object=None, dut_obj=None):
 
                     pi = int(pathloss)
                     ag = int(antenna_gain)
-                    calc_dbm_beacon = int(beacon_sig) + pi + rssi_adj + ag
+                    calc_dbm_beacon = int(beacon_sig) + pi + rssi_adj - ag
                     logg.info("calc_dbm_beacon {}".format(calc_dbm_beacon))
 
                     logg.info("sig: %s" % sig)
-                    calc_dbm = int(sig) + pi + rssi_adj + ag
+                    calc_dbm = int(sig) + pi + rssi_adj - ag
                     logg.info("calc_dbm %s" % (calc_dbm))
 
                     # Calculated per-antenna power is what we calculate the AP transmitted
@@ -2929,7 +2932,7 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                     # then we calculate AP transmitted at +2
                     calc_ant1 = 0
                     if (ants[0] != ""):
-                        calc_ant1 = int(ants[0]) + pi + rssi_adj + ag
+                        calc_ant1 = int(ants[0]) + pi + rssi_adj - ag
                         logg.info(
                             "calc_ant1: {} = ants[0]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant1, ants[0],
                                                                                                   pi, rssi_adj, ag))
@@ -2937,19 +2940,19 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                     calc_ant3 = 0
                     calc_ant4 = 0
                     if (len(ants) > 1 and ants[1] != ""):
-                        calc_ant2 = int(ants[1]) + pi + rssi_adj + ag
+                        calc_ant2 = int(ants[1]) + pi + rssi_adj - ag
                         logg.info(
                             "calc_ant2: {} = ants[1]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant2, ants[1],
                                                                                                   pi, rssi_adj, ag))
 
                     if (len(ants) > 2 and ants[2] != ""):
-                        calc_ant3 = int(ants[2]) + pi + rssi_adj + ag
+                        calc_ant3 = int(ants[2]) + pi + rssi_adj - ag
                         logg.info(
                             "calc_ant3: {} = ants[2]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant3, ants[2],
                                                                                                   pi, rssi_adj, ag))
 
                     if (len(ants) > 3 and ants[3] != ""):
-                        calc_ant4 = int(ants[3]) + pi + rssi_adj + ag
+                        calc_ant4 = int(ants[3]) + pi + rssi_adj - ag
                         logg.info(
                             "calc_ant4: {} = ants[3]: {} + pi: {} + rssi_adj: {} + ag: {}".format(calc_ant4, ants[3],
                                                                                                   pi, rssi_adj, ag))
@@ -3586,47 +3589,97 @@ def main(tx_config=None, target_object=None, dut_obj=None):
                     if (float(cc_power) != float(ap_power_unit)):
                         ap_power = float(ap_power_unit)
                         cc_power_f = float(cc_power)
-                        logging.info("Comparing AP power: {} to configured power: {}".format(ap_power, cc_power_f))
 
-                        # CASE 1: HW LIMIT HIT
-                        if ap_power == hw_limit:
-                            #  FIX: HW is valid ONLY if HW < EIRP
-                            if hw_limit < eirp:
-                                err = (
-                                    f"INFO: TX limited by HW capability | "
-                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, AP={ap_power}"
-                                )
-                            else:
-                                err = (
-                                    f"FAIL: REGULATORY VIOLATION | "
-                                    f"AP applied HW instead of EIRP | "
-                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, EIRP={eirp}, AP={ap_power}"
-                                )
-                                tx_power_failures.append(err)
-
-                        # CASE 2: REGULATORY (EIRP) LIMIT HIT
-                        elif ap_power == eirp:
-                            #  FIX: EIRP is valid ONLY if EIRP <= HW
-                            if eirp <= hw_limit:
-                                err = (
-                                    f"INFO: TX limited by REGULATORY (EIRP) | "
-                                    f"REQUESTED={cc_power_f}, EIRP={eirp}, AP={ap_power}"
-                                )
-                            else:
-                                err = (
-                                    f"FAIL: WRONG LIMIT APPLIED | "
-                                    f"AP applied EIRP instead of HW | "
-                                    f"REQUESTED={cc_power_f}, HW_LIMIT={hw_limit}, EIRP={eirp}, AP={ap_power}"
-                                )
-                                tx_power_failures.append(err)
-
-                        # CASE 3: REAL FAILURE
-                        else:
-                            err = (
-                                f"FAIL: TX POWER MISMATCH | "
-                                f"REQUESTED={cc_power_f}, AP={ap_power}, "
-                                f"HW_LIMIT={hw_limit}, EIRP={eirp}"
+                        logging.info(
+                            "Comparing AP power: {} to configured power: {}".format(
+                                ap_power,
+                                cc_power_f
                             )
+                        )
+
+                        # eirp already contains:
+                        # Regulatory EIRP - antenna gain
+                        reg_tx_limit = float(eirp)
+
+                        # Reconstruct original regulatory EIRP
+                        raw_eirp = reg_tx_limit + float(ag)
+
+                        hw_limit = float(hw_limit)
+
+                        # -------------------------------------------------
+                        # CASE 1: HW LIMIT APPLIED
+                        # -------------------------------------------------
+                        if ap_power == hw_limit:
+
+                            # HW valid only if it is lowest limit
+                            if hw_limit <= reg_tx_limit:
+
+                                err = (
+                                    f"INFO: TX limited by AP hardware capability | "
+                                    f"Requested TX={cc_power_f} dBm | "
+                                    f"Regulatory EIRP={raw_eirp} dBm | "
+                                    f"Regulatory TX Limit={reg_tx_limit} dBm | "
+                                    f"HW Limit={hw_limit} dBm | "
+                                    f"AP TX={ap_power} dBm"
+                                )
+
+                            else:
+
+                                err = (
+                                    f"FAIL: Regulatory TX limit should apply instead of HW limit | "
+                                    f"Requested TX={cc_power_f} dBm | "
+                                    f"Regulatory EIRP={raw_eirp} dBm | "
+                                    f"Regulatory TX Limit={reg_tx_limit} dBm | "
+                                    f"HW Limit={hw_limit} dBm | "
+                                    f"AP TX={ap_power} dBm"
+                                )
+
+                                tx_power_failures.append(err)
+
+                        # -------------------------------------------------
+                        # CASE 2: REGULATORY LIMIT APPLIED
+                        # -------------------------------------------------
+                        elif ap_power == reg_tx_limit:
+
+                            # Regulatory valid only if lowest limit
+                            if reg_tx_limit <= hw_limit:
+
+                                err = (
+                                    f"INFO: TX limited by regulatory domain | "
+                                    f"Requested TX={cc_power_f} dBm | "
+                                    f"Regulatory EIRP={raw_eirp} dBm | "
+                                    f"Regulatory TX Limit={reg_tx_limit} dBm | "
+                                    f"HW Limit={hw_limit} dBm | "
+                                    f"AP TX={ap_power} dBm"
+                                )
+
+                            else:
+
+                                err = (
+                                    f"FAIL: HW limit should apply instead of regulatory TX limit | "
+                                    f"Requested TX={cc_power_f} dBm | "
+                                    f"Regulatory EIRP={raw_eirp} dBm | "
+                                    f"Regulatory TX Limit={reg_tx_limit} dBm | "
+                                    f"HW Limit={hw_limit} dBm | "
+                                    f"AP TX={ap_power} dBm"
+                                )
+
+                                tx_power_failures.append(err)
+
+                        # -------------------------------------------------
+                        # CASE 3: REAL MISMATCH
+                        # -------------------------------------------------
+                        else:
+
+                            err = (
+                                f"FAIL: TX power mismatch detected | "
+                                f"Requested TX={cc_power_f} dBm | "
+                                f"Regulatory EIRP={raw_eirp} dBm | "
+                                f"Regulatory TX Limit={reg_tx_limit} dBm | "
+                                f"HW Limit={hw_limit} dBm | "
+                                f"AP TX={ap_power} dBm"
+                            )
+
                             tx_power_failures.append(err)
                         logg.info(err)
                         csv.write(err)
